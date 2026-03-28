@@ -13,7 +13,7 @@ import re
 import secrets
 import sqlite3
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import boto3
@@ -38,6 +38,8 @@ APP_HOST = os.getenv("APP_HOST", "0.0.0.0")
 APP_PORT = int(os.getenv("APP_PORT", "8080"))
 ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "hello@sattrack.co.uk")
 BASE_URL = os.getenv("BASE_URL", "https://gateway.sattrack.co.uk")
+NOTIFICATION_CHECK_SECONDS = int(os.getenv("NOTIFICATION_CHECK_SECONDS", "3600"))  # 1 hour
+NOTIFICATION_COOLDOWN_HOURS = int(os.getenv("NOTIFICATION_COOLDOWN_HOURS", "24"))  # 1 email/day/gw
 
 logger = logging.getLogger("gateway-monitor")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -83,6 +85,13 @@ def init_db():
             mac TEXT NOT NULL,
             status TEXT NOT NULL,
             timestamp TEXT DEFAULT (datetime('now'))
+        );
+        CREATE TABLE IF NOT EXISTS notification_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT NOT NULL,
+            mac TEXT NOT NULL,
+            status TEXT NOT NULL,
+            sent_at TEXT DEFAULT (datetime('now'))
         );
     """)
     # Migrate: add new columns if upgrading from older schema
@@ -319,6 +328,70 @@ def build_notification_email(gateway_name: str, mac: str, new_status: str,
     return subject, html
 
 
+def build_new_gateway_email(gateway_name: str, mac: str) -> tuple[str, str]:
+    """Return (subject, html_body) for a new gateway registration notification."""
+    display_name = gateway_name if gateway_name else mac
+    now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+
+    subject = f"New Gateway Registered: {display_name}"
+
+    content = f"""
+    <div style="text-align:center;margin-bottom:28px;">
+      <span style="display:inline-block;background:#3B82F6;color:#ffffff;font-size:14px;font-weight:700;padding:10px 28px;border-radius:24px;letter-spacing:0.5px;">
+        NEW GATEWAY
+      </span>
+    </div>
+    <h2 style="color:#1E293B;margin:0 0 8px;font-size:20px;font-weight:700;">New Gateway Registered</h2>
+    <p style="color:#334155;font-size:15px;line-height:1.7;margin:0 0 16px;">
+      A new LoRaWAN gateway has connected to the multi-gateway aggregator for the first time.
+    </p>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#F8FAFC;border-radius:8px;border:1px solid #E2E8F0;margin:16px 0 24px;">
+      <tr>
+        <td style="padding:20px 24px;">
+          <table role="presentation" cellpadding="0" cellspacing="0" width="100%">
+            <tr>
+              <td width="100" style="color:#64748B;font-size:14px;padding:0 0 8px;vertical-align:top;">Name</td>
+              <td style="padding:0 0 8px;vertical-align:top;">
+                <span style="color:#0F172A;font-size:14px;font-weight:600;">{display_name}</span>
+              </td>
+            </tr>
+            <tr>
+              <td width="100" style="color:#64748B;font-size:14px;padding:0 0 8px;vertical-align:top;">MAC</td>
+              <td style="padding:0 0 8px;vertical-align:top;">
+                <code style="background-color:#E2E8F0;padding:3px 10px;border-radius:4px;font-size:13px;color:#0F172A;font-weight:600;">{mac}</code>
+              </td>
+            </tr>
+            <tr>
+              <td width="100" style="color:#64748B;font-size:14px;padding:0;vertical-align:top;">Time</td>
+              <td style="padding:0;vertical-align:top;">
+                <span style="color:#334155;font-size:14px;">{now_str}</span>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+    <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 auto;">
+      <tr>
+        <td style="background-color:#E22936;border-radius:8px;">
+          <a href="{BASE_URL}" target="_blank" style="display:inline-block;padding:14px 36px;color:#ffffff;text-decoration:none;font-size:16px;font-weight:600;letter-spacing:0.3px;">
+            View Dashboard
+          </a>
+        </td>
+      </tr>
+    </table>
+    """
+
+    footer = """
+    <p style="color:#94A3B8;font-size:12px;margin:0 0 12px;">
+      You're receiving this as the SatTrack admin.
+    </p>
+    """
+
+    html = sattrack_email_wrapper(content, footer)
+    return subject, html
+
+
 # ---------------------------------------------------------------------------
 # Gateway poller
 # ---------------------------------------------------------------------------
@@ -380,6 +453,10 @@ async def poll_gateways():
             conn.execute("INSERT INTO status_log (mac, status) VALUES (?, ?)",
                          (mac, "online" if connected else "offline"))
             logger.info(f"New gateway discovered: {mac} (connected={connected})")
+
+            # Notify admin of new gateway registration (always immediate)
+            new_gw_subject, new_gw_html = build_new_gateway_email(public_key or mac, mac)
+            send_email(ADMIN_EMAIL, new_gw_subject, new_gw_html)
         else:
             old_connected = existing["connected"]
             conn.execute(
@@ -391,33 +468,101 @@ async def poll_gateways():
                  uplinks, downlinks, now, mac),
             )
 
-            # Status changed — log and notify
+            # Status changed — log it (emails handled by check_notifications)
             if old_connected != connected:
                 new_status = "online" if connected else "offline"
                 conn.execute("INSERT INTO status_log (mac, status) VALUES (?, ?)", (mac, new_status))
                 logger.info(f"Gateway {mac} status changed to {new_status}")
 
-                gateway_name = existing["friendly_name"] or existing["public_key"] or ""
-                notify_field = "notify_online" if connected else "notify_offline"
+    conn.commit()
+    conn.close()
 
-                # Get per-gateway subscribers with their tokens
-                subs = conn.execute(
-                    f"SELECT email, unsubscribe_token FROM subscribers WHERE mac = ? AND {notify_field} = 1",
-                    (mac,),
-                ).fetchall()
 
-                # Send to subscribers with unsubscribe links
-                notified_emails = set()
-                for sub in subs:
-                    subject, html = build_notification_email(
-                        gateway_name, mac, new_status, sub["unsubscribe_token"])
-                    send_email(sub["email"], subject, html)
-                    notified_emails.add(sub["email"])
+async def check_notifications():
+    """
+    Runs every NOTIFICATION_CHECK_SECONDS (default 1 hour).
+    Looks at status_log for changes since the last check, then sends
+    at most ONE email per gateway per subscriber per 24 hours.
+    """
+    conn = get_db()
+    now_utc = datetime.now(timezone.utc)
+    cutoff = (now_utc - timedelta(hours=NOTIFICATION_COOLDOWN_HOURS)).isoformat()
 
-                # Always send to admin (without unsubscribe link)
-                if ADMIN_EMAIL not in notified_emails:
-                    subject, html = build_notification_email(gateway_name, mac, new_status)
-                    send_email(ADMIN_EMAIL, subject, html)
+    # Get the most recent status change for each gateway in the last check window
+    # We look at status_log entries from the last NOTIFICATION_CHECK_SECONDS + buffer
+    check_window = (now_utc - timedelta(
+        seconds=NOTIFICATION_CHECK_SECONDS + 60)).isoformat()
+
+    recent_changes = conn.execute(
+        """SELECT mac, status, timestamp FROM status_log
+           WHERE timestamp > ?
+           ORDER BY timestamp DESC""",
+        (check_window,),
+    ).fetchall()
+
+    # Deduplicate: keep only the latest status per gateway
+    latest_per_gw = {}
+    for row in recent_changes:
+        if row["mac"] not in latest_per_gw:
+            latest_per_gw[row["mac"]] = row["status"]
+
+    if not latest_per_gw:
+        conn.close()
+        return
+
+    logger.info(f"Notification check: {len(latest_per_gw)} gateway(s) with status changes")
+
+    for mac, new_status in latest_per_gw.items():
+        gw = conn.execute("SELECT * FROM gateways WHERE mac = ?", (mac,)).fetchone()
+        if not gw:
+            continue
+
+        gateway_name = gw["public_key"] or ""
+        notify_field = "notify_online" if new_status == "online" else "notify_offline"
+
+        # Get per-gateway subscribers
+        subs = conn.execute(
+            f"SELECT email, unsubscribe_token FROM subscribers WHERE mac = ? AND {notify_field} = 1",
+            (mac,),
+        ).fetchall()
+
+        notified_emails = set()
+        for sub in subs:
+            # Check 24-hour cooldown for this email + gateway
+            already_sent = conn.execute(
+                "SELECT 1 FROM notification_log WHERE email = ? AND mac = ? AND sent_at > ?",
+                (sub["email"], mac, cutoff),
+            ).fetchone()
+            if already_sent:
+                logger.debug(f"Skipping {sub['email']} for {mac} — already notified in last {NOTIFICATION_COOLDOWN_HOURS}h")
+                continue
+
+            subject, html = build_notification_email(
+                gateway_name, mac, new_status, sub["unsubscribe_token"])
+            send_email(sub["email"], subject, html)
+            conn.execute(
+                "INSERT INTO notification_log (email, mac, status) VALUES (?, ?, ?)",
+                (sub["email"], mac, new_status),
+            )
+            notified_emails.add(sub["email"])
+
+        # Always send to admin (with cooldown too)
+        if ADMIN_EMAIL not in notified_emails:
+            already_sent = conn.execute(
+                "SELECT 1 FROM notification_log WHERE email = ? AND mac = ? AND sent_at > ?",
+                (ADMIN_EMAIL, mac, cutoff),
+            ).fetchone()
+            if not already_sent:
+                subject, html = build_notification_email(gateway_name, mac, new_status)
+                send_email(ADMIN_EMAIL, subject, html)
+                conn.execute(
+                    "INSERT INTO notification_log (email, mac, status) VALUES (?, ?, ?)",
+                    (ADMIN_EMAIL, mac, new_status),
+                )
+
+    # Housekeeping: purge notification_log entries older than 48h
+    purge_cutoff = (now_utc - timedelta(hours=48)).isoformat()
+    conn.execute("DELETE FROM notification_log WHERE sent_at < ?", (purge_cutoff,))
 
     conn.commit()
     conn.close()
@@ -433,8 +578,10 @@ scheduler = AsyncIOScheduler()
 async def lifespan(app: FastAPI):
     init_db()
     scheduler.add_job(poll_gateways, "interval", seconds=POLL_INTERVAL_SECONDS, id="poll")
+    scheduler.add_job(check_notifications, "interval", seconds=NOTIFICATION_CHECK_SECONDS, id="notify")
     scheduler.start()
     await poll_gateways()
+    await check_notifications()
     yield
     scheduler.shutdown()
 
@@ -468,7 +615,7 @@ async def unsubscribe_page(token: str, request: Request):
         gw = conn.execute("SELECT * FROM gateways WHERE mac = ?", (sub["mac"],)).fetchone()
         gateway_name = ""
         if gw:
-            gateway_name = gw["friendly_name"] or gw["public_key"] or sub["mac"]
+            gateway_name = gw["public_key"] or sub["mac"]
         else:
             gateway_name = sub["mac"]
 
@@ -512,16 +659,6 @@ async def api_gateway_history(mac: str):
     return JSONResponse(result)
 
 
-@app.post("/api/gateways/{mac}/friendly-name")
-async def api_set_friendly_name(mac: str, request: Request):
-    body = await request.json()
-    name = body.get("friendly_name", "").strip()
-    conn = get_db()
-    conn.execute("UPDATE gateways SET friendly_name = ? WHERE mac = ?", (name, mac))
-    conn.commit()
-    conn.close()
-    return JSONResponse({"ok": True})
-
 
 @app.post("/api/subscribers")
 async def api_add_subscriber(request: Request):
@@ -563,7 +700,7 @@ async def api_add_subscriber(request: Request):
     gw = conn.execute("SELECT * FROM gateways WHERE mac = ?", (mac,)).fetchone()
     gateway_name = ""
     if gw:
-        gateway_name = gw["friendly_name"] or gw["public_key"] or mac
+        gateway_name = gw["public_key"] or mac
 
     conn.close()
 
