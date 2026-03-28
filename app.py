@@ -5,10 +5,12 @@ and sends email alerts via AWS SES.
 """
 
 import asyncio
+import hashlib
 import json
 import logging
 import os
 import re
+import secrets
 import sqlite3
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -19,8 +21,7 @@ import httpx
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from botocore.exceptions import ClientError
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 # ---------------------------------------------------------------------------
@@ -35,6 +36,8 @@ SES_FROM_EMAIL = os.getenv("SES_FROM_EMAIL", "alerts@sattrack.co.uk")
 REGION = os.getenv("LORAWAN_REGION", "EU868")
 APP_HOST = os.getenv("APP_HOST", "0.0.0.0")
 APP_PORT = int(os.getenv("APP_PORT", "8080"))
+ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "hello@sattrack.co.uk")
+BASE_URL = os.getenv("BASE_URL", "https://gateway.sattrack.co.uk")
 
 logger = logging.getLogger("gateway-monitor")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -71,6 +74,7 @@ def init_db():
             mac TEXT DEFAULT '__ALL__',
             notify_online INTEGER DEFAULT 1,
             notify_offline INTEGER DEFAULT 1,
+            unsubscribe_token TEXT NOT NULL,
             created_at TEXT DEFAULT (datetime('now')),
             UNIQUE(email, mac)
         );
@@ -82,26 +86,27 @@ def init_db():
         );
     """)
     # Migrate: add new columns if upgrading from older schema
+    for col, typedef in [
+        ("friendly_name", "TEXT DEFAULT ''"),
+        ("connected_seconds", "REAL DEFAULT 0"),
+        ("last_uplink_seconds_ago", "REAL DEFAULT -1"),
+        ("uplinks", "INTEGER DEFAULT 0"),
+        ("downlinks", "INTEGER DEFAULT 0"),
+    ]:
+        try:
+            conn.execute(f"ALTER TABLE gateways ADD COLUMN {col} {typedef}")
+        except sqlite3.OperationalError:
+            pass
+    # Migrate subscribers: add unsubscribe_token
     try:
-        conn.execute("ALTER TABLE gateways ADD COLUMN friendly_name TEXT DEFAULT ''")
+        conn.execute("ALTER TABLE subscribers ADD COLUMN unsubscribe_token TEXT NOT NULL DEFAULT ''")
     except sqlite3.OperationalError:
         pass
-    try:
-        conn.execute("ALTER TABLE gateways ADD COLUMN connected_seconds REAL DEFAULT 0")
-    except sqlite3.OperationalError:
-        pass
-    try:
-        conn.execute("ALTER TABLE gateways ADD COLUMN last_uplink_seconds_ago REAL DEFAULT -1")
-    except sqlite3.OperationalError:
-        pass
-    try:
-        conn.execute("ALTER TABLE gateways ADD COLUMN uplinks INTEGER DEFAULT 0")
-    except sqlite3.OperationalError:
-        pass
-    try:
-        conn.execute("ALTER TABLE gateways ADD COLUMN downlinks INTEGER DEFAULT 0")
-    except sqlite3.OperationalError:
-        pass
+    # Backfill any empty tokens
+    rows = conn.execute("SELECT id FROM subscribers WHERE unsubscribe_token = ''").fetchall()
+    for row in rows:
+        conn.execute("UPDATE subscribers SET unsubscribe_token = ? WHERE id = ?",
+                     (secrets.token_urlsafe(32), row["id"]))
     conn.commit()
     conn.close()
 
@@ -115,7 +120,6 @@ def parse_prometheus_metrics(text: str) -> dict:
     for line in text.strip().split("\n"):
         if line.startswith("#") or not line.strip():
             continue
-        # Match lines like: metric_name{mac="AABB..."} 1234
         m = re.match(r'(\w+)\{.*?mac="(\w+)".*?\}\s+([\d.]+)', line)
         if m:
             metric_name, mac, value = m.group(1), m.group(2), m.group(3)
@@ -123,6 +127,54 @@ def parse_prometheus_metrics(text: str) -> dict:
                 metrics[mac] = {}
             metrics[mac][metric_name] = float(value)
     return metrics
+
+
+# ---------------------------------------------------------------------------
+# SatTrack branded email wrapper
+# ---------------------------------------------------------------------------
+def sattrack_email_wrapper(content_html: str, footer_extra: str = "") -> str:
+    """Wrap content in the standard SatTrack email template."""
+    year = datetime.now().year
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+<body style="margin:0;padding:0;background-color:#F1F5F9;font-family:'Helvetica Neue',Arial,Helvetica,sans-serif;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#F1F5F9;padding:30px 0;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="background-color:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 4px 16px rgba(15,23,42,0.08);">
+          <!-- Header -->
+          <tr>
+            <td align="center" style="background-color:#ffffff;padding:32px 40px 20px;">
+              <h1 style="margin:0;color:#1E293B;font-size:22px;font-weight:700;">SatTrack</h1>
+              <p style="margin:4px 0 0;color:#64748B;font-size:13px;">Gateway Monitor</p>
+            </td>
+          </tr>
+          <!-- Accent stripe -->
+          <tr>
+            <td style="background-color:#E22936;height:4px;font-size:0;line-height:0;">&nbsp;</td>
+          </tr>
+          <!-- Body -->
+          <tr>
+            <td style="padding:40px 40px 32px;">
+              {content_html}
+            </td>
+          </tr>
+          <!-- Footer -->
+          <tr>
+            <td style="background-color:#F8FAFC;padding:24px 40px;text-align:center;border-top:1px solid #E2E8F0;">
+              {footer_extra}
+              <p style="color:#94A3B8;font-size:12px;margin:0;">
+                Copyright &copy; {year} Quominus Limited (trading as <strong>sattrack.co.uk</strong>). All rights reserved.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>"""
 
 
 # ---------------------------------------------------------------------------
@@ -147,43 +199,123 @@ def send_email(to_email: str, subject: str, body_html: str):
         logger.warning(f"Email send error for {to_email}: {e}")
 
 
-def build_notification_email(gateway_name: str, mac: str, new_status: str) -> tuple[str, str]:
+def send_confirmation_email(email: str, gateway_name: str, mac: str, unsubscribe_token: str):
+    """Send a subscription confirmation email."""
+    display_name = gateway_name or mac
+    unsub_url = f"{BASE_URL}/unsubscribe/{unsubscribe_token}"
+
+    content = f"""
+    <h2 style="color:#1E293B;margin:0 0 16px;font-size:22px;font-weight:700;">Subscription Confirmed</h2>
+    <p style="color:#334155;font-size:15px;line-height:1.7;margin:0 0 24px;">
+      You'll now receive email alerts when the following gateway changes status:
+    </p>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#F8FAFC;border-radius:8px;border:1px solid #E2E8F0;margin:0 0 24px;">
+      <tr>
+        <td style="padding:20px 24px;">
+          <table role="presentation" cellpadding="0" cellspacing="0" width="100%">
+            <tr>
+              <td width="120" style="color:#1E293B;font-size:14px;font-weight:700;padding:0 0 10px;vertical-align:top;">Gateway</td>
+              <td style="padding:0 0 10px;vertical-align:top;">
+                <span style="color:#0F172A;font-size:14px;font-weight:600;">{display_name}</span>
+              </td>
+            </tr>
+            <tr>
+              <td width="120" style="color:#1E293B;font-size:14px;font-weight:700;padding:0;vertical-align:top;">MAC</td>
+              <td style="padding:0;vertical-align:top;">
+                <code style="background-color:#E2E8F0;padding:3px 10px;border-radius:4px;font-size:14px;color:#0F172A;font-weight:600;">{mac}</code>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+    <p style="color:#334155;font-size:15px;line-height:1.7;margin:0 0 28px;">
+      You can view all gateway statuses at any time on the <a href="{BASE_URL}" style="color:#E22936;text-decoration:none;font-weight:600;">gateway dashboard</a>.
+    </p>
+    """
+
+    footer = f"""
+    <p style="color:#94A3B8;font-size:12px;margin:0 0 12px;">
+      <a href="{unsub_url}" style="color:#94A3B8;text-decoration:underline;">Unsubscribe from this gateway's alerts</a>
+    </p>
+    """
+
+    html = sattrack_email_wrapper(content, footer)
+    send_email(email, f"Subscribed: {display_name} alerts", html)
+
+
+def build_notification_email(gateway_name: str, mac: str, new_status: str,
+                              unsubscribe_token: str = "") -> tuple[str, str]:
     """Return (subject, html_body) for a status change notification."""
-    status_color = "#22C55E" if new_status == "online" else "#EF4444"
+    status_color = "#22C55E" if new_status == "online" else "#DC2626"
     status_label = "Online" if new_status == "online" else "Offline"
+    status_icon = "&#x2705;" if new_status == "online" else "&#x26A0;&#xFE0F;"
     display_name = gateway_name if gateway_name else mac
+    now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 
     subject = f"Gateway {display_name} is now {status_label}"
 
-    html = f"""
-    <!DOCTYPE html>
-    <html>
-    <head><meta charset="utf-8"></head>
-    <body style="margin:0;padding:0;background:#F1F5F9;font-family:'Poppins',Helvetica,Arial,sans-serif;">
-      <table width="100%" cellpadding="0" cellspacing="0" style="background:#F1F5F9;padding:40px 0;">
-        <tr><td align="center">
-          <table width="560" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 4px 16px rgba(15,23,42,0.08);">
-            <tr><td style="background:#1E293B;padding:24px 32px;">
-              <h1 style="margin:0;color:#ffffff;font-size:20px;font-weight:600;">SatTrack Gateway Monitor</h1>
-            </td></tr>
-            <tr><td style="padding:32px;">
-              <div style="text-align:center;margin-bottom:24px;">
-                <span style="display:inline-block;background:{status_color};color:#fff;font-size:14px;font-weight:600;padding:8px 20px;border-radius:20px;">
-                  {status_label.upper()}
-                </span>
-              </div>
-              <p style="color:#1E293B;font-size:16px;margin:0 0 8px 0;"><strong>{display_name}</strong></p>
-              <p style="color:#64748B;font-size:14px;margin:0 0 4px 0;">MAC: {mac}</p>
-              <p style="color:#64748B;font-size:14px;margin:0 0 24px 0;">Time: {datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")}</p>
-              <hr style="border:none;border-top:1px solid #E2E8F0;margin:24px 0;">
-              <p style="color:#94A3B8;font-size:12px;margin:0;">You're receiving this because you subscribed to gateway alerts on SatTrack Gateway Monitor.</p>
-            </td></tr>
+    content = f"""
+    <div style="text-align:center;margin-bottom:28px;">
+      <span style="display:inline-block;background:{status_color};color:#ffffff;font-size:14px;font-weight:700;padding:10px 28px;border-radius:24px;letter-spacing:0.5px;">
+        {status_label.upper()}
+      </span>
+    </div>
+    <h2 style="color:#1E293B;margin:0 0 8px;font-size:20px;font-weight:700;">{display_name}</h2>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#F8FAFC;border-radius:8px;border:1px solid #E2E8F0;margin:16px 0 24px;">
+      <tr>
+        <td style="padding:20px 24px;">
+          <table role="presentation" cellpadding="0" cellspacing="0" width="100%">
+            <tr>
+              <td width="100" style="color:#64748B;font-size:14px;padding:0 0 8px;vertical-align:top;">Status</td>
+              <td style="padding:0 0 8px;vertical-align:top;">
+                <span style="color:{status_color};font-size:14px;font-weight:700;">{status_label}</span>
+              </td>
+            </tr>
+            <tr>
+              <td width="100" style="color:#64748B;font-size:14px;padding:0 0 8px;vertical-align:top;">MAC</td>
+              <td style="padding:0 0 8px;vertical-align:top;">
+                <code style="background-color:#E2E8F0;padding:3px 10px;border-radius:4px;font-size:13px;color:#0F172A;font-weight:600;">{mac}</code>
+              </td>
+            </tr>
+            <tr>
+              <td width="100" style="color:#64748B;font-size:14px;padding:0;vertical-align:top;">Time</td>
+              <td style="padding:0;vertical-align:top;">
+                <span style="color:#334155;font-size:14px;">{now_str}</span>
+              </td>
+            </tr>
           </table>
-        </td></tr>
-      </table>
-    </body>
-    </html>
+        </td>
+      </tr>
+    </table>
+    <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 auto;">
+      <tr>
+        <td style="background-color:#E22936;border-radius:8px;">
+          <a href="{BASE_URL}" target="_blank" style="display:inline-block;padding:14px 36px;color:#ffffff;text-decoration:none;font-size:16px;font-weight:600;letter-spacing:0.3px;">
+            View Dashboard
+          </a>
+        </td>
+      </tr>
+    </table>
     """
+
+    # Build footer with unsubscribe link if token provided
+    footer = ""
+    if unsubscribe_token:
+        unsub_url = f"{BASE_URL}/unsubscribe/{unsubscribe_token}"
+        footer = f"""
+        <p style="color:#94A3B8;font-size:12px;margin:0 0 12px;">
+          <a href="{unsub_url}" style="color:#94A3B8;text-decoration:underline;">Unsubscribe from this gateway's alerts</a>
+        </p>
+        """
+    else:
+        footer = """
+        <p style="color:#94A3B8;font-size:12px;margin:0 0 12px;">
+          You're receiving this as the SatTrack admin.
+        </p>
+        """
+
+    html = sattrack_email_wrapper(content, footer)
     return subject, html
 
 
@@ -202,7 +334,6 @@ async def poll_gateways():
             resp.raise_for_status()
             data = resp.json()
 
-            # Also fetch Prometheus metrics for uplink/downlink counts
             prom_metrics = {}
             try:
                 metrics_resp = await client.get(f"{MULTI_GW_API}/metrics", headers=headers, timeout=10)
@@ -227,7 +358,6 @@ async def poll_gateways():
         if last_uplink_seconds_ago is None:
             last_uplink_seconds_ago = -1
 
-        # Get uplink/downlink from Prometheus metrics
         gw_metrics = prom_metrics.get(mac, {})
         uplinks = int(gw_metrics.get("helium_multi_gateway_uplinks_total",
                       gw_metrics.get("uplinks_total",
@@ -239,7 +369,6 @@ async def poll_gateways():
         existing = conn.execute("SELECT * FROM gateways WHERE mac = ?", (mac,)).fetchone()
 
         if existing is None:
-            # New gateway — insert and log
             conn.execute(
                 """INSERT INTO gateways
                    (mac, public_key, connected, connected_seconds, last_uplink_seconds_ago,
@@ -271,14 +400,24 @@ async def poll_gateways():
                 gateway_name = existing["friendly_name"] or existing["public_key"] or ""
                 notify_field = "notify_online" if connected else "notify_offline"
 
-                subscribers = conn.execute(
-                    f"SELECT email FROM subscribers WHERE (mac = ? OR mac = '__ALL__') AND {notify_field} = 1",
+                # Get per-gateway subscribers with their tokens
+                subs = conn.execute(
+                    f"SELECT email, unsubscribe_token FROM subscribers WHERE mac = ? AND {notify_field} = 1",
                     (mac,),
                 ).fetchall()
 
-                for sub in subscribers:
-                    subject, html = build_notification_email(gateway_name, mac, new_status)
+                # Send to subscribers with unsubscribe links
+                notified_emails = set()
+                for sub in subs:
+                    subject, html = build_notification_email(
+                        gateway_name, mac, new_status, sub["unsubscribe_token"])
                     send_email(sub["email"], subject, html)
+                    notified_emails.add(sub["email"])
+
+                # Always send to admin (without unsubscribe link)
+                if ADMIN_EMAIL not in notified_emails:
+                    subject, html = build_notification_email(gateway_name, mac, new_status)
+                    send_email(ADMIN_EMAIL, subject, html)
 
     conn.commit()
     conn.close()
@@ -295,7 +434,6 @@ async def lifespan(app: FastAPI):
     init_db()
     scheduler.add_job(poll_gateways, "interval", seconds=POLL_INTERVAL_SECONDS, id="poll")
     scheduler.start()
-    # Run an initial poll on startup
     await poll_gateways()
     yield
     scheduler.shutdown()
@@ -314,6 +452,41 @@ templates = Jinja2Templates(directory=str(templates_dir))
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     return templates.TemplateResponse("index.html", {"request": request, "region": REGION})
+
+
+@app.get("/unsubscribe/{token}", response_class=HTMLResponse)
+async def unsubscribe_page(token: str, request: Request):
+    """Handle unsubscribe link — remove subscriber and show confirmation."""
+    conn = get_db()
+    sub = conn.execute("SELECT * FROM subscribers WHERE unsubscribe_token = ?", (token,)).fetchone()
+
+    if sub:
+        conn.execute("DELETE FROM subscribers WHERE unsubscribe_token = ?", (token,))
+        conn.commit()
+
+        # Get gateway name for display
+        gw = conn.execute("SELECT * FROM gateways WHERE mac = ?", (sub["mac"],)).fetchone()
+        gateway_name = ""
+        if gw:
+            gateway_name = gw["friendly_name"] or gw["public_key"] or sub["mac"]
+        else:
+            gateway_name = sub["mac"]
+
+        conn.close()
+        return templates.TemplateResponse("unsubscribed.html", {
+            "request": request,
+            "email": sub["email"],
+            "gateway_name": gateway_name,
+            "success": True,
+        })
+    else:
+        conn.close()
+        return templates.TemplateResponse("unsubscribed.html", {
+            "request": request,
+            "email": "",
+            "gateway_name": "",
+            "success": False,
+        })
 
 
 # ---- API ------------------------------------------------------------------
@@ -350,49 +523,53 @@ async def api_set_friendly_name(mac: str, request: Request):
     return JSONResponse({"ok": True})
 
 
-@app.get("/api/subscribers")
-async def api_subscribers():
-    conn = get_db()
-    rows = conn.execute("SELECT * FROM subscribers ORDER BY created_at DESC").fetchall()
-    result = [dict(r) for r in rows]
-    conn.close()
-    return JSONResponse(result)
-
-
 @app.post("/api/subscribers")
 async def api_add_subscriber(request: Request):
     body = await request.json()
     email = body.get("email", "").strip().lower()
-    mac = body.get("mac", "__ALL__").strip()
+    mac = body.get("mac", "").strip()
     notify_online = 1 if body.get("notify_online", True) else 0
     notify_offline = 1 if body.get("notify_offline", True) else 0
 
     if not email or "@" not in email:
         raise HTTPException(status_code=400, detail="Invalid email address")
 
-    conn = get_db()
-    try:
-        conn.execute(
-            "INSERT INTO subscribers (email, mac, notify_online, notify_offline) VALUES (?, ?, ?, ?)",
-            (email, mac, notify_online, notify_offline),
-        )
-        conn.commit()
-    except sqlite3.IntegrityError:
-        conn.execute(
-            "UPDATE subscribers SET notify_online=?, notify_offline=? WHERE email=? AND mac=?",
-            (notify_online, notify_offline, email, mac),
-        )
-        conn.commit()
-    conn.close()
-    return JSONResponse({"ok": True})
+    if not mac or mac == "__ALL__":
+        raise HTTPException(status_code=400, detail="Please select a specific gateway")
 
+    unsubscribe_token = secrets.token_urlsafe(32)
 
-@app.delete("/api/subscribers/{sub_id}")
-async def api_delete_subscriber(sub_id: int):
     conn = get_db()
-    conn.execute("DELETE FROM subscribers WHERE id = ?", (sub_id,))
+
+    # Check if already subscribed
+    existing = conn.execute(
+        "SELECT id FROM subscribers WHERE email = ? AND mac = ?", (email, mac)
+    ).fetchone()
+
+    if existing:
+        conn.execute(
+            "UPDATE subscribers SET notify_online=?, notify_offline=?, unsubscribe_token=? WHERE email=? AND mac=?",
+            (notify_online, notify_offline, unsubscribe_token, email, mac),
+        )
+    else:
+        conn.execute(
+            "INSERT INTO subscribers (email, mac, notify_online, notify_offline, unsubscribe_token) VALUES (?, ?, ?, ?, ?)",
+            (email, mac, notify_online, notify_offline, unsubscribe_token),
+        )
+
     conn.commit()
+
+    # Get gateway name for confirmation email
+    gw = conn.execute("SELECT * FROM gateways WHERE mac = ?", (mac,)).fetchone()
+    gateway_name = ""
+    if gw:
+        gateway_name = gw["friendly_name"] or gw["public_key"] or mac
+
     conn.close()
+
+    # Send confirmation email
+    send_confirmation_email(email, gateway_name, mac, unsubscribe_token)
+
     return JSONResponse({"ok": True})
 
 

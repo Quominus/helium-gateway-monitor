@@ -59,277 +59,9 @@
     .header-left h1 { font-size: 20px; font-weight: 700; }
     .header-left span { font-size: 12px; color: var(--primary-400); font-weight: 400; }
     .header-right { font-size: 12px; color: var(--primary-400); }
-    .header-right a { color: var(--primary-300); text-decoration: none; }
-    .header-right a:hover { color: #fff; }
 
     /* ---- Container ---- */
     .container { max-width: 1280px; margin: 0 auto; padding: 24px; }
-
-    /* ---- Summary Stats ---- */
-    .stats-grid {
-      display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      gap: 16px;
-      margin-bottom: 24px;
-    }
-    .stat-card {
-      background: #fff;
-      border-radius: var(--radius);
-      box-shadow: var(--shadow);
-      padding: 20px 24px;
-    }
-    .stat-card .stat-label {
-      font-size: 11px;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.8px;
-      color: var(--primary-400);
-      margin-bottom: 4px;
-    }
-    .stat-card .stat-value {
-      font-size: 32px;
-      font-weight: 700;
-      color: var(--primary-800);
-    }
-
-    /* ---- Gateway Table ---- */
-    .table-card {
-      background: #fff;
-      border-radius: var(--radius);
-      box-shadow: var(--shadow);
-      overflow: hidden;
-      margin-bottom: 24px;
-    }
-    .table-wrapper {
-      overflow-x: auto;
-    }
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 13px;
-    }
-    thead th {
-      text-align: left;
-      padding: 14px 16px;
-      font-size: 11px;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.6px;
-      color: var(--primary-400);
-      border-bottom: 1px solid var(--primary-200);
-      white-space: nowrap;
-    }
-    thead th:last-child, thead th:nth-last-child(2) {
-      text-align: right;
-    }
-    tbody tr {
-      border-bottom: 1px solid var(--primary-100);
-      transition: background 0.15s;
-    }
-    tbody tr:last-child { border-bottom: none; }
-    tbody tr:hover { background: var(--primary-50); }
-    tbody td {
-      padding: 14px 16px;
-      vertical-align: middle;
-      color: var(--primary-700);
-    }
-    tbody td:last-child, tbody td:nth-last-child(2) {
-      text-align: right;
-      font-variant-numeric: tabular-nums;
-    }
-
-    /* Status dot */
-    .status-dot {
-      width: 10px; height: 10px;
-      border-radius: 50%;
-      display: inline-block;
-    }
-    .status-dot.online { background: var(--green); box-shadow: 0 0 6px var(--green); }
-    .status-dot.offline { background: var(--primary-300); }
-
-    @keyframes pulse-green {
-      0%, 100% { box-shadow: 0 0 0 0 rgba(34,197,94,0.4); }
-      50% { box-shadow: 0 0 0 6px rgba(34,197,94,0); }
-    }
-    .status-dot.online { animation: pulse-green 2s ease-in-out infinite; }
-
-    /* Region badge */
-    .region-badge {
-      display: inline-block;
-      padding: 2px 8px;
-      border-radius: 4px;
-      font-size: 11px;
-      font-weight: 600;
-      background: var(--green-bg);
-      color: #16a34a;
-      border: 1px solid rgba(34,197,94,0.2);
-    }
-
-    /* MAC & Public Key */
-    .mac-cell {
-      font-family: 'Courier New', monospace;
-      font-size: 12px;
-      color: var(--primary-600);
-    }
-    .copy-btn {
-      background: none;
-      border: none;
-      cursor: pointer;
-      color: var(--primary-400);
-      padding: 2px;
-      margin-left: 4px;
-      font-size: 12px;
-      vertical-align: middle;
-      transition: color 0.15s;
-    }
-    .copy-btn:hover { color: var(--accent); }
-
-    .public-key-name {
-      font-weight: 500;
-      color: var(--primary-700);
-    }
-
-    /* Friendly name */
-    .friendly-name {
-      font-size: 12px;
-      color: var(--primary-500);
-      cursor: pointer;
-      padding: 2px 6px;
-      border-radius: 4px;
-      transition: background 0.15s;
-      display: inline-block;
-      min-width: 60px;
-    }
-    .friendly-name:hover { background: var(--primary-100); }
-    .friendly-name.empty { font-style: italic; color: var(--primary-300); }
-    .friendly-name-input {
-      font-family: 'Poppins', sans-serif;
-      font-size: 12px;
-      border: 2px solid var(--accent);
-      border-radius: 4px;
-      padding: 2px 6px;
-      width: 140px;
-      outline: none;
-      color: var(--primary-800);
-    }
-
-    /* Connected & Last Uplink */
-    .connected-time { color: var(--primary-600); }
-    .last-uplink { color: var(--primary-600); }
-    .last-uplink.stale { color: var(--primary-400); }
-
-    /* Packet counts */
-    .packet-count { font-weight: 500; color: var(--primary-700); font-variant-numeric: tabular-nums; }
-
-    /* ---- Empty state ---- */
-    .empty-row td {
-      text-align: center !important;
-      padding: 48px 16px;
-      color: var(--primary-400);
-    }
-
-    /* ---- Notifications panel ---- */
-    .notify-panel {
-      background: #fff;
-      border-radius: var(--radius);
-      box-shadow: var(--shadow);
-      padding: 24px;
-      margin-bottom: 32px;
-    }
-    .notify-panel h2 { font-size: 16px; font-weight: 600; margin-bottom: 4px; }
-    .notify-panel .subtitle { font-size: 13px; color: var(--primary-500); margin-bottom: 20px; }
-
-    .notify-form { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; }
-    .form-group { display: flex; flex-direction: column; gap: 4px; }
-    .form-group label { font-size: 12px; font-weight: 500; color: var(--primary-600); }
-    .form-group input, .form-group select {
-      font-family: 'Poppins', sans-serif;
-      font-size: 14px;
-      padding: 8px 12px;
-      border: 1px solid var(--primary-300);
-      border-radius: 8px;
-      color: var(--primary-800);
-      outline: none;
-      transition: border 0.15s;
-    }
-    .form-group input:focus, .form-group select:focus { border-color: var(--accent); }
-    .form-group input[type="email"] { min-width: 260px; }
-
-    .checkbox-group {
-      display: flex; align-items: center; gap: 16px;
-      padding: 8px 0;
-    }
-    .checkbox-label {
-      display: flex; align-items: center; gap: 6px;
-      font-size: 13px; color: var(--primary-700); cursor: pointer;
-    }
-    .checkbox-label input[type="checkbox"] {
-      accent-color: var(--accent);
-      width: 16px; height: 16px;
-    }
-
-    .btn {
-      font-family: 'Poppins', sans-serif;
-      font-size: 14px;
-      font-weight: 600;
-      padding: 8px 20px;
-      border-radius: 8px;
-      border: none;
-      cursor: pointer;
-      transition: all 0.2s;
-    }
-    .btn-primary {
-      background: linear-gradient(135deg, #E22936 0%, #c81e2b 100%);
-      color: #fff;
-    }
-    .btn-primary:hover { background: linear-gradient(135deg, #D01E2C 0%, #b8192a 100%); transform: translateY(-1px); }
-    .btn-danger {
-      background: none; color: var(--red); font-size: 12px; padding: 4px 8px;
-    }
-    .btn-danger:hover { background: var(--red-bg); border-radius: 6px; }
-
-    .subscribers-list { margin-top: 20px; }
-    .sub-row {
-      display: flex; align-items: center; justify-content: space-between;
-      padding: 10px 0;
-      border-bottom: 1px solid var(--primary-100);
-      font-size: 13px;
-    }
-    .sub-row:last-child { border-bottom: none; }
-    .sub-email { font-weight: 500; color: var(--primary-800); }
-    .sub-meta { color: var(--primary-500); font-size: 12px; }
-    .sub-tags { display: flex; gap: 6px; }
-    .sub-tag {
-      font-size: 11px; padding: 2px 8px; border-radius: 10px; font-weight: 500;
-    }
-    .sub-tag.on { background: var(--green-bg); color: #16a34a; }
-    .sub-tag.off { background: var(--red-bg); color: #dc2626; }
-
-    /* ---- Responsive ---- */
-    @media (max-width: 768px) {
-      .stats-grid { grid-template-columns: repeat(2, 1fr); }
-      .notify-form { flex-direction: column; }
-      .form-group input[type="email"] { min-width: unset; width: 100%; }
-    }
-    @media (max-width: 480px) {
-      .stats-grid { grid-template-columns: 1fr; }
-    }
-
-    .fade-in { animation: fadeIn 0.3s ease; }
-    @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
-
-    /* ---- Toast ---- */
-    .toast {
-      position: fixed; bottom: 24px; right: 24px;
-      background: var(--primary-800); color: #fff;
-      padding: 12px 20px; border-radius: 8px;
-      font-size: 13px; font-weight: 500;
-      box-shadow: var(--shadow-lg);
-      transform: translateY(100px); opacity: 0;
-      transition: all 0.3s ease;
-      z-index: 200;
-    }
-    .toast.show { transform: translateY(0); opacity: 1; }
 
     /* ---- How to connect panel ---- */
     .howto-panel {
@@ -389,6 +121,349 @@
       color: var(--primary-500);
       line-height: 1.6;
     }
+
+    /* ---- Summary Stats ---- */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .stat-card {
+      background: #fff;
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 20px 24px;
+    }
+    .stat-card .stat-label {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: var(--primary-400);
+      margin-bottom: 4px;
+    }
+    .stat-card .stat-value {
+      font-size: 32px;
+      font-weight: 700;
+      color: var(--primary-800);
+    }
+
+    /* ---- Search & Pagination bar ---- */
+    .table-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--primary-200);
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .search-input {
+      font-family: 'Poppins', sans-serif;
+      font-size: 13px;
+      padding: 8px 14px 8px 36px;
+      border: 1px solid var(--primary-300);
+      border-radius: 8px;
+      color: var(--primary-800);
+      outline: none;
+      transition: border 0.15s;
+      width: 280px;
+      background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2394A3B8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cpath d='m21 21-4.3-4.3'/%3E%3C/svg%3E") no-repeat 12px center;
+    }
+    .search-input:focus { border-color: var(--accent); }
+    .search-input::placeholder { color: var(--primary-400); }
+
+    .pagination {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .page-btn {
+      font-family: 'Poppins', sans-serif;
+      font-size: 12px;
+      font-weight: 500;
+      padding: 6px 12px;
+      border: 1px solid var(--primary-200);
+      border-radius: 6px;
+      background: #fff;
+      color: var(--primary-600);
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .page-btn:hover { background: var(--primary-50); border-color: var(--primary-300); }
+    .page-btn.active { background: var(--primary-800); color: #fff; border-color: var(--primary-800); }
+    .page-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .page-info { font-size: 12px; color: var(--primary-500); padding: 0 8px; }
+
+    /* ---- Gateway Table ---- */
+    .table-card {
+      background: #fff;
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      margin-bottom: 24px;
+    }
+    .table-wrapper { overflow-x: auto; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    thead th {
+      text-align: left;
+      padding: 14px 16px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      color: var(--primary-400);
+      border-bottom: 1px solid var(--primary-200);
+      white-space: nowrap;
+    }
+    thead th.right { text-align: right; }
+    thead th.center { text-align: center; }
+    tbody tr {
+      border-bottom: 1px solid var(--primary-100);
+      transition: background 0.15s;
+    }
+    tbody tr:last-child { border-bottom: none; }
+    tbody tr:hover { background: var(--primary-50); }
+    tbody td {
+      padding: 14px 16px;
+      vertical-align: middle;
+      color: var(--primary-700);
+    }
+    tbody td.right { text-align: right; font-variant-numeric: tabular-nums; }
+    tbody td.center { text-align: center; }
+
+    /* Status dot */
+    .status-dot {
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+    .status-dot.online { background: var(--green); box-shadow: 0 0 6px var(--green); }
+    .status-dot.offline { background: var(--primary-300); }
+
+    @keyframes pulse-green {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(34,197,94,0.4); }
+      50% { box-shadow: 0 0 0 6px rgba(34,197,94,0); }
+    }
+    .status-dot.online { animation: pulse-green 2s ease-in-out infinite; }
+
+    /* Region badge */
+    .region-badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+      background: var(--green-bg);
+      color: #16a34a;
+      border: 1px solid rgba(34,197,94,0.2);
+    }
+
+    /* MAC & Public Key */
+    .mac-cell {
+      font-family: 'Courier New', monospace;
+      font-size: 12px;
+      color: var(--primary-600);
+    }
+    .copy-btn {
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: var(--primary-400);
+      padding: 2px;
+      margin-left: 4px;
+      font-size: 12px;
+      vertical-align: middle;
+      transition: color 0.15s;
+    }
+    .copy-btn:hover { color: var(--accent); }
+
+    .public-key-name { font-weight: 500; color: var(--primary-700); }
+
+    /* Friendly name */
+    .friendly-name {
+      font-size: 12px;
+      color: var(--primary-500);
+      cursor: pointer;
+      padding: 2px 6px;
+      border-radius: 4px;
+      transition: background 0.15s;
+      display: inline-block;
+      min-width: 60px;
+    }
+    .friendly-name:hover { background: var(--primary-100); }
+    .friendly-name.empty { font-style: italic; color: var(--primary-300); }
+    .friendly-name-input {
+      font-family: 'Poppins', sans-serif;
+      font-size: 12px;
+      border: 2px solid var(--accent);
+      border-radius: 4px;
+      padding: 2px 6px;
+      width: 140px;
+      outline: none;
+      color: var(--primary-800);
+    }
+
+    .connected-time { color: var(--primary-600); }
+    .last-uplink { color: var(--primary-600); }
+    .last-uplink.stale { color: var(--primary-400); }
+    .packet-count { font-weight: 500; color: var(--primary-700); font-variant-numeric: tabular-nums; }
+
+    /* ---- Subscribe button (inline per row) ---- */
+    .subscribe-btn {
+      font-family: 'Poppins', sans-serif;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 5px 12px;
+      border-radius: 6px;
+      border: 1px solid var(--accent);
+      background: transparent;
+      color: var(--accent);
+      cursor: pointer;
+      transition: all 0.15s;
+      white-space: nowrap;
+    }
+    .subscribe-btn:hover {
+      background: var(--accent);
+      color: #fff;
+    }
+
+    /* ---- Subscribe modal ---- */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(15,23,42,0.5);
+      z-index: 300;
+      align-items: center;
+      justify-content: center;
+    }
+    .modal-overlay.open { display: flex; }
+    .modal {
+      background: #fff;
+      border-radius: var(--radius);
+      box-shadow: var(--shadow-lg);
+      padding: 28px;
+      width: 400px;
+      max-width: 90vw;
+      animation: fadeIn 0.2s ease;
+    }
+    .modal h3 { font-size: 16px; font-weight: 600; margin-bottom: 4px; color: var(--primary-800); }
+    .modal .modal-sub { font-size: 13px; color: var(--primary-500); margin-bottom: 20px; }
+    .modal .form-group { margin-bottom: 14px; }
+    .modal .form-group label { display: block; font-size: 12px; font-weight: 500; color: var(--primary-600); margin-bottom: 4px; }
+    .modal .form-group input[type="email"] {
+      font-family: 'Poppins', sans-serif;
+      font-size: 14px;
+      padding: 10px 14px;
+      border: 1px solid var(--primary-300);
+      border-radius: 8px;
+      color: var(--primary-800);
+      outline: none;
+      width: 100%;
+      transition: border 0.15s;
+    }
+    .modal .form-group input[type="email"]:focus { border-color: var(--accent); }
+    .modal .checkbox-group {
+      display: flex; gap: 16px; margin-bottom: 20px;
+    }
+    .modal .checkbox-label {
+      display: flex; align-items: center; gap: 6px;
+      font-size: 13px; color: var(--primary-700); cursor: pointer;
+    }
+    .modal .checkbox-label input[type="checkbox"] {
+      accent-color: var(--accent);
+      width: 16px; height: 16px;
+    }
+    .modal-actions { display: flex; gap: 10px; justify-content: flex-end; }
+    .btn {
+      font-family: 'Poppins', sans-serif;
+      font-size: 14px;
+      font-weight: 600;
+      padding: 8px 20px;
+      border-radius: 8px;
+      border: none;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, #E22936 0%, #c81e2b 100%);
+      color: #fff;
+    }
+    .btn-primary:hover { background: linear-gradient(135deg, #D01E2C 0%, #b8192a 100%); }
+    .btn-secondary {
+      background: var(--primary-100);
+      color: var(--primary-600);
+    }
+    .btn-secondary:hover { background: var(--primary-200); }
+    .btn-danger {
+      background: none; color: var(--red); font-size: 12px; padding: 4px 8px; border: none; cursor: pointer;
+    }
+    .btn-danger:hover { background: var(--red-bg); border-radius: 6px; }
+
+    /* ---- Subscribers panel ---- */
+    .subs-panel {
+      background: #fff;
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 24px;
+      margin-bottom: 32px;
+    }
+    .subs-panel h2 { font-size: 16px; font-weight: 600; margin-bottom: 4px; }
+    .subs-panel .subtitle { font-size: 13px; color: var(--primary-500); margin-bottom: 16px; }
+    .sub-row {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 0;
+      border-bottom: 1px solid var(--primary-100);
+      font-size: 13px;
+    }
+    .sub-row:last-child { border-bottom: none; }
+    .sub-email { font-weight: 500; color: var(--primary-800); }
+    .sub-meta { color: var(--primary-500); font-size: 12px; }
+    .sub-tags { display: flex; gap: 6px; }
+    .sub-tag {
+      font-size: 11px; padding: 2px 8px; border-radius: 10px; font-weight: 500;
+    }
+    .sub-tag.on { background: var(--green-bg); color: #16a34a; }
+    .sub-tag.off { background: var(--red-bg); color: #dc2626; }
+
+    /* ---- Empty state ---- */
+    .empty-row td {
+      text-align: center !important;
+      padding: 48px 16px;
+      color: var(--primary-400);
+    }
+
+    /* ---- Responsive ---- */
+    @media (max-width: 768px) {
+      .stats-grid { grid-template-columns: repeat(2, 1fr); }
+      .search-input { width: 100%; }
+      .table-toolbar { flex-direction: column; align-items: stretch; }
+    }
+    @media (max-width: 480px) {
+      .stats-grid { grid-template-columns: 1fr; }
+    }
+
+    .fade-in { animation: fadeIn 0.3s ease; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
+    /* ---- Toast ---- */
+    .toast {
+      position: fixed; bottom: 24px; right: 24px;
+      background: var(--primary-800); color: #fff;
+      padding: 12px 20px; border-radius: 8px;
+      font-size: 13px; font-weight: 500;
+      box-shadow: var(--shadow-lg);
+      transform: translateY(100px); opacity: 0;
+      transition: all 0.3s ease;
+      z-index: 200;
+    }
+    .toast.show { transform: translateY(0); opacity: 1; }
   </style>
 </head>
 <body>
@@ -399,9 +474,7 @@
         <h1>SatTrack Gateway Monitor</h1>
         <span>Helium LoRaWAN Network</span>
       </div>
-      <div class="header-right">
-        Multi-Gateway
-      </div>
+      <div class="header-right">Multi-Gateway</div>
     </div>
   </header>
 
@@ -445,6 +518,10 @@
 
     <!-- Gateway Table -->
     <div class="table-card fade-in">
+      <div class="table-toolbar">
+        <input type="text" class="search-input" id="searchInput" placeholder="Search by name, MAC, or public key..." oninput="onSearch()">
+        <div class="pagination" id="pagination"></div>
+      </div>
       <div class="table-wrapper">
         <table>
           <thead>
@@ -456,13 +533,14 @@
               <th>Friendly Name</th>
               <th>Connected</th>
               <th>Last Uplink</th>
-              <th>Uplinks</th>
-              <th>Downlinks</th>
+              <th class="right">Uplinks</th>
+              <th class="right">Downlinks</th>
+              <th class="center">Alerts</th>
             </tr>
           </thead>
           <tbody id="gatewayTableBody">
             <tr class="empty-row" id="emptyRow">
-              <td colspan="9">
+              <td colspan="10">
                 <svg width="40" height="40" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" style="margin-bottom:8px;opacity:0.4;">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.858 15.355-5.858 21.213 0"/>
                 </svg>
@@ -474,30 +552,25 @@
       </div>
     </div>
 
-    <!-- Notifications -->
-    <div class="notify-panel fade-in">
-      <h2>Email Notifications</h2>
-      <p class="subtitle">Get notified when gateways go online or offline.</p>
+  </div>
 
-      <div class="notify-form" id="notifyForm">
-        <div class="form-group">
-          <label>Email address</label>
-          <input type="email" id="subEmail" placeholder="you@example.com">
-        </div>
-        <div class="form-group">
-          <label>Gateway</label>
-          <select id="subMac">
-            <option value="__ALL__">All gateways</option>
-          </select>
-        </div>
-        <div class="checkbox-group">
-          <label class="checkbox-label"><input type="checkbox" id="subOnline" checked> Online</label>
-          <label class="checkbox-label"><input type="checkbox" id="subOffline" checked> Offline</label>
-        </div>
-        <button class="btn btn-primary" onclick="addSubscriber()">Subscribe</button>
+  <!-- Subscribe Modal -->
+  <div class="modal-overlay" id="subscribeModal">
+    <div class="modal">
+      <h3>Subscribe to Alerts</h3>
+      <p class="modal-sub" id="modalGatewayName"></p>
+      <div class="form-group">
+        <label>Email address</label>
+        <input type="email" id="modalEmail" placeholder="you@example.com">
       </div>
-
-      <div class="subscribers-list" id="subscribersList"></div>
+      <div class="checkbox-group">
+        <label class="checkbox-label"><input type="checkbox" id="modalOnline" checked> Online</label>
+        <label class="checkbox-label"><input type="checkbox" id="modalOffline" checked> Offline</label>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="submitSubscribe()">Subscribe</button>
+      </div>
     </div>
   </div>
 
@@ -505,10 +578,13 @@
 
   <script>
     const REGION = '{{ region }}';
+    const PAGE_SIZE = 15;
 
     // ---- State ----
     let gateways = [];
-    let subscribers = [];
+    let filteredGateways = [];
+    let currentPage = 1;
+    let modalMac = '';
 
     // ---- Toast ----
     function showToast(msg) {
@@ -528,18 +604,60 @@
       try {
         const res = await fetch('/api/gateways');
         gateways = await res.json();
-        renderTable();
+        onSearch();
         updateStats();
-        updateGatewaySelect();
       } catch (e) { console.error('Failed to fetch gateways', e); }
     }
 
-    async function fetchSubscribers() {
-      try {
-        const res = await fetch('/api/subscribers');
-        subscribers = await res.json();
-        renderSubscribers();
-      } catch (e) { console.error('Failed to fetch subscribers', e); }
+
+    // ---- Search ----
+    function onSearch() {
+      const query = document.getElementById('searchInput').value.toLowerCase().trim();
+      if (!query) {
+        filteredGateways = [...gateways];
+      } else {
+        filteredGateways = gateways.filter(gw =>
+          (gw.mac || '').toLowerCase().includes(query) ||
+          (gw.public_key || '').toLowerCase().includes(query) ||
+          (gw.friendly_name || '').toLowerCase().includes(query)
+        );
+      }
+      currentPage = 1;
+      renderTable();
+      renderPagination();
+    }
+
+    // ---- Pagination ----
+    function renderPagination() {
+      const totalPages = Math.max(1, Math.ceil(filteredGateways.length / PAGE_SIZE));
+      const pag = document.getElementById('pagination');
+
+      if (totalPages <= 1) {
+        pag.innerHTML = `<span class="page-info">${filteredGateways.length} gateway${filteredGateways.length !== 1 ? 's' : ''}</span>`;
+        return;
+      }
+
+      let html = `<button class="page-btn" onclick="goToPage(${currentPage - 1})" ${currentPage === 1 ? 'disabled' : ''}>&laquo;</button>`;
+
+      for (let i = 1; i <= totalPages; i++) {
+        if (totalPages > 7 && i > 2 && i < totalPages - 1 && Math.abs(i - currentPage) > 1) {
+          if (i === 3 || i === totalPages - 2) html += '<span class="page-info">...</span>';
+          continue;
+        }
+        html += `<button class="page-btn ${i === currentPage ? 'active' : ''}" onclick="goToPage(${i})">${i}</button>`;
+      }
+
+      html += `<button class="page-btn" onclick="goToPage(${currentPage + 1})" ${currentPage === totalPages ? 'disabled' : ''}>&raquo;</button>`;
+      html += `<span class="page-info">${filteredGateways.length} total</span>`;
+      pag.innerHTML = html;
+    }
+
+    function goToPage(page) {
+      const totalPages = Math.max(1, Math.ceil(filteredGateways.length / PAGE_SIZE));
+      if (page < 1 || page > totalPages) return;
+      currentPage = page;
+      renderTable();
+      renderPagination();
     }
 
     // ---- Format helpers ----
@@ -568,11 +686,13 @@
     // ---- Render table ----
     function renderTable() {
       const tbody = document.getElementById('gatewayTableBody');
+      const start = (currentPage - 1) * PAGE_SIZE;
+      const pageData = filteredGateways.slice(start, start + PAGE_SIZE);
 
       if (gateways.length === 0) {
         tbody.innerHTML = `
           <tr class="empty-row">
-            <td colspan="9">
+            <td colspan="10">
               <svg width="40" height="40" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" style="margin-bottom:8px;opacity:0.4;">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.858 15.355-5.858 21.213 0"/>
               </svg>
@@ -582,7 +702,12 @@
         return;
       }
 
-      tbody.innerHTML = gateways.map(gw => {
+      if (pageData.length === 0) {
+        tbody.innerHTML = `<tr class="empty-row"><td colspan="10">No gateways match your search.</td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = pageData.map(gw => {
         const status = gw.connected ? 'online' : 'offline';
         const friendlyName = gw.friendly_name || '';
         const publicKey = gw.public_key || '';
@@ -608,8 +733,11 @@
             </td>
             <td class="connected-time">${connDuration}</td>
             <td class="last-uplink ${isStale ? 'stale' : ''}">${lastUplink}</td>
-            <td class="packet-count">${formatNumber(gw.uplinks)}</td>
-            <td class="packet-count">${formatNumber(gw.downlinks)}</td>
+            <td class="right packet-count">${formatNumber(gw.uplinks)}</td>
+            <td class="right packet-count">${formatNumber(gw.downlinks)}</td>
+            <td class="center">
+              <button class="subscribe-btn" onclick="openSubscribeModal('${gw.mac}')">Subscribe</button>
+            </td>
           </tr>`;
       }).join('');
     }
@@ -643,6 +771,54 @@
       });
     }
 
+    // ---- Subscribe modal ----
+    function openSubscribeModal(mac) {
+      modalMac = mac;
+      const gw = gateways.find(g => g.mac === mac);
+      const name = gw ? (gw.friendly_name || gw.public_key || mac) : mac;
+      document.getElementById('modalGatewayName').textContent = `Gateway: ${name}`;
+      document.getElementById('modalEmail').value = '';
+      document.getElementById('modalOnline').checked = true;
+      document.getElementById('modalOffline').checked = true;
+      document.getElementById('subscribeModal').classList.add('open');
+      setTimeout(() => document.getElementById('modalEmail').focus(), 100);
+    }
+
+    function closeModal() {
+      document.getElementById('subscribeModal').classList.remove('open');
+      modalMac = '';
+    }
+
+    async function submitSubscribe() {
+      const email = document.getElementById('modalEmail').value.trim();
+      const notifyOnline = document.getElementById('modalOnline').checked;
+      const notifyOffline = document.getElementById('modalOffline').checked;
+
+      if (!email || !email.includes('@')) {
+        showToast('Please enter a valid email');
+        return;
+      }
+
+      const res = await fetch('/api/subscribers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, mac: modalMac, notify_online: notifyOnline, notify_offline: notifyOffline }),
+      });
+
+      if (res.ok) {
+        showToast('Subscribed! Check your email for confirmation.');
+        closeModal();
+      } else {
+        const err = await res.json();
+        showToast(err.detail || 'Failed to subscribe');
+      }
+    }
+
+    // Close modal on overlay click
+    document.getElementById('subscribeModal').addEventListener('click', function(e) {
+      if (e.target === this) closeModal();
+    });
+
     // ---- Stats ----
     function updateStats() {
       const online = gateways.filter(g => g.connected).length;
@@ -653,75 +829,6 @@
       document.getElementById('statOnline').textContent = online;
       document.getElementById('statUplinks').textContent = formatNumber(totalUplinks);
       document.getElementById('statDownlinks').textContent = formatNumber(totalDownlinks);
-    }
-
-    // ---- Gateway select in subscriber form ----
-    function updateGatewaySelect() {
-      const sel = document.getElementById('subMac');
-      const current = sel.value;
-      sel.innerHTML = '<option value="__ALL__">All gateways</option>';
-      gateways.forEach(gw => {
-        const label = gw.friendly_name || gw.public_key || gw.mac;
-        sel.innerHTML += `<option value="${gw.mac}">${escHtml(label)}</option>`;
-      });
-      sel.value = current || '__ALL__';
-    }
-
-    // ---- Subscribers ----
-    async function addSubscriber() {
-      const email = document.getElementById('subEmail').value.trim();
-      const mac = document.getElementById('subMac').value;
-      const notifyOnline = document.getElementById('subOnline').checked;
-      const notifyOffline = document.getElementById('subOffline').checked;
-
-      if (!email || !email.includes('@')) {
-        showToast('Please enter a valid email');
-        return;
-      }
-
-      await fetch('/api/subscribers', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, mac, notify_online: notifyOnline, notify_offline: notifyOffline }),
-      });
-
-      document.getElementById('subEmail').value = '';
-      showToast('Subscribed successfully');
-      await fetchSubscribers();
-    }
-
-    async function removeSub(id) {
-      await fetch(`/api/subscribers/${id}`, { method: 'DELETE' });
-      showToast('Unsubscribed');
-      await fetchSubscribers();
-    }
-
-    function renderSubscribers() {
-      const list = document.getElementById('subscribersList');
-      if (subscribers.length === 0) {
-        list.innerHTML = '<p style="font-size:13px;color:var(--primary-400);padding:8px 0;">No subscribers yet.</p>';
-        return;
-      }
-
-      list.innerHTML = subscribers.map(s => {
-        const gwLabel = s.mac === '__ALL__'
-          ? 'All gateways'
-          : (gateways.find(g => g.mac === s.mac)?.friendly_name || gateways.find(g => g.mac === s.mac)?.public_key || s.mac);
-        return `
-          <div class="sub-row fade-in">
-            <div>
-              <div class="sub-email">${escHtml(s.email)}</div>
-              <div class="sub-meta">${escHtml(gwLabel)}</div>
-            </div>
-            <div style="display:flex;align-items:center;gap:8px;">
-              <div class="sub-tags">
-                ${s.notify_online ? '<span class="sub-tag on">Online</span>' : ''}
-                ${s.notify_offline ? '<span class="sub-tag off">Offline</span>' : ''}
-              </div>
-              <button class="btn btn-danger" onclick="removeSub(${s.id})">Remove</button>
-            </div>
-          </div>`;
-      }).join('');
     }
 
     // ---- Helpers ----
@@ -737,9 +844,7 @@
 
     // ---- Init & polling ----
     fetchGateways();
-    fetchSubscribers();
     setInterval(fetchGateways, 15000);
-    setInterval(fetchSubscribers, 60000);
   </script>
 </body>
 </html>
