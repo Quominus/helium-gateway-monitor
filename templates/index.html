@@ -43,155 +43,190 @@
     header {
       background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #334155 100%);
       color: #fff;
-      padding: 0;
       box-shadow: var(--shadow-lg);
       position: sticky;
       top: 0;
       z-index: 100;
     }
     .header-inner {
-      max-width: 1200px;
+      max-width: 1280px;
       margin: 0 auto;
-      padding: 20px 24px;
+      padding: 18px 24px;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      flex-wrap: wrap;
-      gap: 12px;
     }
-    .header-left { display: flex; align-items: center; gap: 12px; }
-    .header-left h1 { font-size: 22px; font-weight: 700; }
-    .header-left span { font-size: 13px; color: var(--primary-400); font-weight: 400; }
-    .header-stats { display: flex; gap: 20px; }
-    .stat-pill {
-      display: flex; align-items: center; gap: 6px;
-      background: rgba(255,255,255,0.08);
-      padding: 8px 16px;
-      border-radius: 20px;
-      font-size: 13px;
-      font-weight: 500;
-    }
-    .stat-dot {
-      width: 8px; height: 8px; border-radius: 50%;
-    }
-    .stat-dot.green { background: var(--green); box-shadow: 0 0 6px var(--green); }
-    .stat-dot.red { background: var(--red); }
-    .stat-dot.total { background: var(--primary-400); }
+    .header-left h1 { font-size: 20px; font-weight: 700; }
+    .header-left span { font-size: 12px; color: var(--primary-400); font-weight: 400; }
+    .header-right { font-size: 12px; color: var(--primary-400); }
+    .header-right a { color: var(--primary-300); text-decoration: none; }
+    .header-right a:hover { color: #fff; }
 
-    /* ---- Main ---- */
-    .container { max-width: 1200px; margin: 0 auto; padding: 24px; }
+    /* ---- Container ---- */
+    .container { max-width: 1280px; margin: 0 auto; padding: 24px; }
 
-    /* ---- Gateway Cards ---- */
-    .section-title {
-      font-size: 16px;
-      font-weight: 600;
-      color: var(--primary-700);
-      margin-bottom: 16px;
-    }
-    .gateways-grid {
+    /* ---- Summary Stats ---- */
+    .stats-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+      grid-template-columns: repeat(4, 1fr);
       gap: 16px;
-      margin-bottom: 32px;
+      margin-bottom: 24px;
     }
-    .gw-card {
+    .stat-card {
       background: #fff;
       border-radius: var(--radius);
       box-shadow: var(--shadow);
-      padding: 20px;
-      transition: box-shadow 0.2s, transform 0.2s;
-      border-left: 4px solid var(--primary-300);
+      padding: 20px 24px;
     }
-    .gw-card:hover { box-shadow: var(--shadow-lg); transform: translateY(-1px); }
-    .gw-card.online { border-left-color: var(--green); }
-    .gw-card.offline { border-left-color: var(--red); }
-
-    .gw-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 12px; }
-    .gw-name-wrap { flex: 1; min-width: 0; }
-    .gw-name {
-      font-size: 16px; font-weight: 600; color: var(--primary-800);
-      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-      cursor: pointer;
-      padding: 2px 6px;
-      margin: -2px -6px;
-      border-radius: 6px;
-      transition: background 0.15s;
-    }
-    .gw-name:hover { background: var(--primary-100); }
-    .gw-name-input {
-      font-family: 'Poppins', sans-serif;
-      font-size: 16px; font-weight: 600;
-      border: 2px solid var(--accent);
-      border-radius: 6px;
-      padding: 2px 6px;
-      width: 100%;
-      outline: none;
-      color: var(--primary-800);
-    }
-    .gw-mac { font-size: 12px; color: var(--primary-500); margin-top: 2px; font-family: monospace; }
-
-    .gw-status-badge {
-      display: inline-flex; align-items: center; gap: 6px;
-      padding: 4px 12px;
-      border-radius: 16px;
-      font-size: 12px;
+    .stat-card .stat-label {
+      font-size: 11px;
       font-weight: 600;
       text-transform: uppercase;
-      letter-spacing: 0.5px;
-      flex-shrink: 0;
+      letter-spacing: 0.8px;
+      color: var(--primary-400);
+      margin-bottom: 4px;
     }
-    .gw-status-badge.online { background: var(--green-bg); color: #16a34a; }
-    .gw-status-badge.offline { background: var(--red-bg); color: #dc2626; }
-    .gw-status-badge .dot {
-      width: 6px; height: 6px; border-radius: 50%;
+    .stat-card .stat-value {
+      font-size: 32px;
+      font-weight: 700;
+      color: var(--primary-800);
     }
-    .gw-status-badge.online .dot { background: var(--green); box-shadow: 0 0 4px var(--green); }
-    .gw-status-badge.offline .dot { background: var(--red); }
 
-    .gw-meta { display: flex; gap: 16px; margin-top: 12px; flex-wrap: wrap; }
-    .gw-meta-item { font-size: 12px; color: var(--primary-500); }
-    .gw-meta-item strong { color: var(--primary-700); font-weight: 500; }
-
-    .gw-history-toggle {
-      margin-top: 12px;
-      font-size: 12px;
-      color: var(--accent);
-      cursor: pointer;
-      font-weight: 500;
-      border: none;
-      background: none;
-      padding: 0;
-      font-family: 'Poppins', sans-serif;
+    /* ---- Gateway Table ---- */
+    .table-card {
+      background: #fff;
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      margin-bottom: 24px;
     }
-    .gw-history-toggle:hover { text-decoration: underline; }
-
-    .gw-history {
-      margin-top: 10px;
-      max-height: 160px;
-      overflow-y: auto;
-      border-top: 1px solid var(--primary-200);
-      padding-top: 8px;
+    .table-wrapper {
+      overflow-x: auto;
     }
-    .gw-history-row {
-      display: flex; justify-content: space-between; align-items: center;
-      padding: 4px 0;
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    thead th {
+      text-align: left;
+      padding: 14px 16px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      color: var(--primary-400);
+      border-bottom: 1px solid var(--primary-200);
+      white-space: nowrap;
+    }
+    thead th:last-child, thead th:nth-last-child(2) {
+      text-align: right;
+    }
+    tbody tr {
+      border-bottom: 1px solid var(--primary-100);
+      transition: background 0.15s;
+    }
+    tbody tr:last-child { border-bottom: none; }
+    tbody tr:hover { background: var(--primary-50); }
+    tbody td {
+      padding: 14px 16px;
+      vertical-align: middle;
+      color: var(--primary-700);
+    }
+    tbody td:last-child, tbody td:nth-last-child(2) {
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* Status dot */
+    .status-dot {
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+    .status-dot.online { background: var(--green); box-shadow: 0 0 6px var(--green); }
+    .status-dot.offline { background: var(--primary-300); }
+
+    @keyframes pulse-green {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(34,197,94,0.4); }
+      50% { box-shadow: 0 0 0 6px rgba(34,197,94,0); }
+    }
+    .status-dot.online { animation: pulse-green 2s ease-in-out infinite; }
+
+    /* Region badge */
+    .region-badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+      background: var(--green-bg);
+      color: #16a34a;
+      border: 1px solid rgba(34,197,94,0.2);
+    }
+
+    /* MAC & Public Key */
+    .mac-cell {
+      font-family: 'Courier New', monospace;
       font-size: 12px;
       color: var(--primary-600);
     }
-    .gw-history-row .dot-sm {
-      width: 6px; height: 6px; border-radius: 50%; display: inline-block; margin-right: 6px;
+    .copy-btn {
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: var(--primary-400);
+      padding: 2px;
+      margin-left: 4px;
+      font-size: 12px;
+      vertical-align: middle;
+      transition: color 0.15s;
     }
-    .gw-history-row .dot-sm.online { background: var(--green); }
-    .gw-history-row .dot-sm.offline { background: var(--red); }
+    .copy-btn:hover { color: var(--accent); }
+
+    .public-key-name {
+      font-weight: 500;
+      color: var(--primary-700);
+    }
+
+    /* Friendly name */
+    .friendly-name {
+      font-size: 12px;
+      color: var(--primary-500);
+      cursor: pointer;
+      padding: 2px 6px;
+      border-radius: 4px;
+      transition: background 0.15s;
+      display: inline-block;
+      min-width: 60px;
+    }
+    .friendly-name:hover { background: var(--primary-100); }
+    .friendly-name.empty { font-style: italic; color: var(--primary-300); }
+    .friendly-name-input {
+      font-family: 'Poppins', sans-serif;
+      font-size: 12px;
+      border: 2px solid var(--accent);
+      border-radius: 4px;
+      padding: 2px 6px;
+      width: 140px;
+      outline: none;
+      color: var(--primary-800);
+    }
+
+    /* Connected & Last Uplink */
+    .connected-time { color: var(--primary-600); }
+    .last-uplink { color: var(--primary-600); }
+    .last-uplink.stale { color: var(--primary-400); }
+
+    /* Packet counts */
+    .packet-count { font-weight: 500; color: var(--primary-700); font-variant-numeric: tabular-nums; }
 
     /* ---- Empty state ---- */
-    .empty-state {
-      text-align: center;
-      padding: 60px 20px;
+    .empty-row td {
+      text-align: center !important;
+      padding: 48px 16px;
       color: var(--primary-400);
     }
-    .empty-state svg { margin-bottom: 16px; opacity: 0.4; }
-    .empty-state p { font-size: 14px; }
 
     /* ---- Notifications panel ---- */
     .notify-panel {
@@ -271,19 +306,14 @@
     .sub-tag.off { background: var(--red-bg); color: #dc2626; }
 
     /* ---- Responsive ---- */
-    @media (max-width: 640px) {
-      .header-inner { flex-direction: column; align-items: flex-start; }
-      .gateways-grid { grid-template-columns: 1fr; }
+    @media (max-width: 768px) {
+      .stats-grid { grid-template-columns: repeat(2, 1fr); }
       .notify-form { flex-direction: column; }
       .form-group input[type="email"] { min-width: unset; width: 100%; }
     }
-
-    /* ---- Animations ---- */
-    @keyframes pulse-green {
-      0%, 100% { box-shadow: 0 0 0 0 rgba(34,197,94,0.4); }
-      50% { box-shadow: 0 0 0 6px rgba(34,197,94,0); }
+    @media (max-width: 480px) {
+      .stats-grid { grid-template-columns: 1fr; }
     }
-    .gw-status-badge.online .dot { animation: pulse-green 2s ease-in-out infinite; }
 
     .fade-in { animation: fadeIn 0.3s ease; }
     @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
@@ -300,6 +330,65 @@
       z-index: 200;
     }
     .toast.show { transform: translateY(0); opacity: 1; }
+
+    /* ---- How to connect panel ---- */
+    .howto-panel {
+      background: #fff;
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      margin-bottom: 24px;
+      overflow: hidden;
+    }
+    .howto-toggle {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 18px 24px;
+      cursor: pointer;
+      user-select: none;
+      transition: background 0.15s;
+    }
+    .howto-toggle:hover { background: var(--primary-50); }
+    .howto-toggle h3 { font-size: 15px; font-weight: 600; color: var(--primary-700); }
+    .howto-arrow {
+      transition: transform 0.25s ease;
+      color: var(--primary-400);
+    }
+    .howto-panel.open .howto-arrow { transform: rotate(180deg); }
+    .howto-body {
+      max-height: 0;
+      overflow: hidden;
+      transition: max-height 0.35s ease, padding 0.35s ease;
+      padding: 0 24px;
+    }
+    .howto-panel.open .howto-body {
+      max-height: 500px;
+      padding: 0 24px 24px 24px;
+    }
+    .howto-body p {
+      font-size: 14px;
+      color: var(--primary-600);
+      line-height: 1.6;
+      margin-bottom: 16px;
+    }
+    .howto-code {
+      background: var(--primary-50);
+      border: 1px solid var(--primary-200);
+      border-radius: 8px;
+      padding: 16px 20px;
+      font-family: 'Courier New', monospace;
+      font-size: 13px;
+      color: var(--primary-700);
+      line-height: 1.8;
+      margin-bottom: 16px;
+    }
+    .howto-code span.label { color: var(--primary-400); }
+    .howto-code span.value { color: var(--primary-800); font-weight: 600; }
+    .howto-note {
+      font-size: 13px;
+      color: var(--primary-500);
+      line-height: 1.6;
+    }
   </style>
 </head>
 <body>
@@ -307,33 +396,86 @@
   <header>
     <div class="header-inner">
       <div class="header-left">
-        <div>
-          <h1>SatTrack Gateway Monitor</h1>
-          <span>Helium LoRaWAN Network</span>
-        </div>
+        <h1>SatTrack Gateway Monitor</h1>
+        <span>Helium LoRaWAN Network</span>
       </div>
-      <div class="header-stats" id="headerStats">
-        <div class="stat-pill"><span class="stat-dot total"></span> <span id="statTotal">0</span> Total</div>
-        <div class="stat-pill"><span class="stat-dot green"></span> <span id="statOnline">0</span> Online</div>
-        <div class="stat-pill"><span class="stat-dot red"></span> <span id="statOffline">0</span> Offline</div>
+      <div class="header-right">
+        Multi-Gateway
       </div>
     </div>
   </header>
 
   <div class="container">
-    <!-- Gateway Cards -->
-    <h3 class="section-title">Gateways</h3>
-    <div class="gateways-grid" id="gatewaysGrid">
-      <div class="empty-state" id="emptyState">
-        <svg width="48" height="48" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.858 15.355-5.858 21.213 0"/>
-        </svg>
-        <p>No gateways connected yet.<br>Point your LoRa gateways at this server to see them here.</p>
+
+    <!-- How to Add a Gateway -->
+    <div class="howto-panel fade-in" id="howtoPanel">
+      <div class="howto-toggle" onclick="document.getElementById('howtoPanel').classList.toggle('open')">
+        <h3>How to Add a Gateway</h3>
+        <svg class="howto-arrow" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+      </div>
+      <div class="howto-body">
+        <p>Connect a LoRaWAN gateway to the Helium network by pointing its packet forwarder at the multi-gateway aggregator:</p>
+        <div class="howto-code">
+          <span class="label">server_address:</span> <span class="value">gateway.sattrack.co.uk</span><br>
+          <span class="label">port:</span> <span class="value">1700</span>
+        </div>
+        <p class="howto-note">A keypair is auto-provisioned on first connection. The gateway will connect as a new Hotspot on the Helium network. Each gateway must have a unique Gateway EUI — check your packet forwarder config and replace the default with your concentrator's actual EUI.</p>
+      </div>
+    </div>
+
+    <!-- Summary Stats -->
+    <div class="stats-grid fade-in">
+      <div class="stat-card">
+        <div class="stat-label">Total Gateways</div>
+        <div class="stat-value" id="statTotal">0</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Connected</div>
+        <div class="stat-value" id="statOnline">0</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Uplinks</div>
+        <div class="stat-value" id="statUplinks">0</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Downlinks</div>
+        <div class="stat-value" id="statDownlinks">0</div>
+      </div>
+    </div>
+
+    <!-- Gateway Table -->
+    <div class="table-card fade-in">
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th style="width:36px"></th>
+              <th>Region</th>
+              <th>MAC</th>
+              <th>Gateway Name</th>
+              <th>Friendly Name</th>
+              <th>Connected</th>
+              <th>Last Uplink</th>
+              <th>Uplinks</th>
+              <th>Downlinks</th>
+            </tr>
+          </thead>
+          <tbody id="gatewayTableBody">
+            <tr class="empty-row" id="emptyRow">
+              <td colspan="9">
+                <svg width="40" height="40" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" style="margin-bottom:8px;opacity:0.4;">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.858 15.355-5.858 21.213 0"/>
+                </svg>
+                <br>No gateways connected yet. Point your LoRa gateways at this server to see them here.
+              </td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </div>
 
     <!-- Notifications -->
-    <div class="notify-panel">
+    <div class="notify-panel fade-in">
       <h2>Email Notifications</h2>
       <p class="subtitle">Get notified when gateways go online or offline.</p>
 
@@ -362,10 +504,11 @@
   <div class="toast" id="toast"></div>
 
   <script>
+    const REGION = '{{ region }}';
+
     // ---- State ----
     let gateways = [];
     let subscribers = [];
-    let historyCache = {};
 
     // ---- Toast ----
     function showToast(msg) {
@@ -375,12 +518,17 @@
       setTimeout(() => t.classList.remove('show'), 3000);
     }
 
+    // ---- Copy to clipboard ----
+    function copyText(text) {
+      navigator.clipboard.writeText(text).then(() => showToast('Copied to clipboard'));
+    }
+
     // ---- Fetch helpers ----
     async function fetchGateways() {
       try {
         const res = await fetch('/api/gateways');
         gateways = await res.json();
-        renderGateways();
+        renderTable();
         updateStats();
         updateGatewaySelect();
       } catch (e) { console.error('Failed to fetch gateways', e); }
@@ -394,73 +542,97 @@
       } catch (e) { console.error('Failed to fetch subscribers', e); }
     }
 
-    async function fetchHistory(mac) {
-      try {
-        const res = await fetch(`/api/gateways/${mac}/history`);
-        historyCache[mac] = await res.json();
-        return historyCache[mac];
-      } catch (e) { return []; }
+    // ---- Format helpers ----
+    function formatDuration(seconds) {
+      if (!seconds || seconds <= 0) return 'Offline';
+      const d = Math.floor(seconds / 86400);
+      const h = Math.floor((seconds % 86400) / 3600);
+      const m = Math.floor((seconds % 3600) / 60);
+      if (d > 0) return `${d}d ${h}h ${m}m`;
+      if (h > 0) return `${h}h ${m}m`;
+      return `${m}m`;
     }
 
-    // ---- Render gateways ----
-    function renderGateways() {
-      const grid = document.getElementById('gatewaysGrid');
-      const empty = document.getElementById('emptyState');
+    function formatLastUplink(seconds) {
+      if (seconds === null || seconds === undefined || seconds < 0) return '-';
+      if (seconds < 60) return `${Math.floor(seconds)}s ago`;
+      if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+      if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+      return `${Math.floor(seconds / 86400)}d ago`;
+    }
+
+    function formatNumber(n) {
+      return (n || 0).toLocaleString();
+    }
+
+    // ---- Render table ----
+    function renderTable() {
+      const tbody = document.getElementById('gatewayTableBody');
 
       if (gateways.length === 0) {
-        grid.innerHTML = '';
-        grid.appendChild(empty);
-        empty.style.display = 'block';
+        tbody.innerHTML = `
+          <tr class="empty-row">
+            <td colspan="9">
+              <svg width="40" height="40" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" style="margin-bottom:8px;opacity:0.4;">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.858 15.355-5.858 21.213 0"/>
+              </svg>
+              <br>No gateways connected yet. Point your LoRa gateways at this server to see them here.
+            </td>
+          </tr>`;
         return;
       }
 
-      empty.style.display = 'none';
-      grid.innerHTML = gateways.map(gw => {
+      tbody.innerHTML = gateways.map(gw => {
         const status = gw.connected ? 'online' : 'offline';
-        const name = gw.name || 'Unnamed Gateway';
-        const lastSeen = gw.last_seen ? timeAgo(gw.last_seen) : 'Never';
-        const firstSeen = gw.first_seen ? new Date(gw.first_seen).toLocaleDateString() : '—';
+        const friendlyName = gw.friendly_name || '';
+        const publicKey = gw.public_key || '';
+        const connDuration = gw.connected ? formatDuration(gw.connected_seconds) : 'Offline';
+        const lastUplink = formatLastUplink(gw.last_uplink_seconds_ago);
+        const isStale = gw.last_uplink_seconds_ago > 3600 || gw.last_uplink_seconds_ago < 0;
 
         return `
-          <div class="gw-card ${status} fade-in" data-mac="${gw.mac}">
-            <div class="gw-header">
-              <div class="gw-name-wrap">
-                <div class="gw-name" onclick="editName(this, '${gw.mac}')" title="Click to rename">${escHtml(name)}</div>
-                <div class="gw-mac">${gw.mac}</div>
-              </div>
-              <span class="gw-status-badge ${status}">
-                <span class="dot"></span>
-                ${status}
-              </span>
-            </div>
-            <div class="gw-meta">
-              <div class="gw-meta-item"><strong>Last seen:</strong> ${lastSeen}</div>
-              <div class="gw-meta-item"><strong>Since:</strong> ${firstSeen}</div>
-            </div>
-            <button class="gw-history-toggle" onclick="toggleHistory(this, '${gw.mac}')">Show history</button>
-          </div>`;
+          <tr>
+            <td><span class="status-dot ${status}"></span></td>
+            <td><span class="region-badge">${escHtml(REGION)}</span></td>
+            <td class="mac-cell">
+              ${escHtml(gw.mac)}<button class="copy-btn" onclick="copyText('${gw.mac}')" title="Copy MAC">&#x2398;</button>
+            </td>
+            <td>
+              <span class="public-key-name">${escHtml(publicKey)}</span>
+              ${publicKey ? `<button class="copy-btn" onclick="copyText('${escAttr(publicKey)}')" title="Copy public key">&#x2398;</button>` : ''}
+            </td>
+            <td>
+              <span class="friendly-name ${friendlyName ? '' : 'empty'}"
+                    onclick="editFriendlyName(this, '${gw.mac}')"
+                    title="Click to edit">${friendlyName ? escHtml(friendlyName) : 'Add name'}</span>
+            </td>
+            <td class="connected-time">${connDuration}</td>
+            <td class="last-uplink ${isStale ? 'stale' : ''}">${lastUplink}</td>
+            <td class="packet-count">${formatNumber(gw.uplinks)}</td>
+            <td class="packet-count">${formatNumber(gw.downlinks)}</td>
+          </tr>`;
       }).join('');
     }
 
-    // ---- Edit gateway name ----
-    function editName(el, mac) {
-      const current = el.textContent;
+    // ---- Edit friendly name ----
+    function editFriendlyName(el, mac) {
+      const current = el.classList.contains('empty') ? '' : el.textContent;
       const input = document.createElement('input');
-      input.className = 'gw-name-input';
-      input.value = current === 'Unnamed Gateway' ? '' : current;
-      input.placeholder = 'Enter gateway name...';
+      input.className = 'friendly-name-input';
+      input.value = current;
+      input.placeholder = 'Enter name...';
       el.replaceWith(input);
       input.focus();
       input.select();
 
       const save = async () => {
         const newName = input.value.trim();
-        await fetch(`/api/gateways/${mac}/name`, {
+        await fetch(`/api/gateways/${mac}/friendly-name`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: newName }),
+          body: JSON.stringify({ friendly_name: newName }),
         });
-        showToast('Gateway name updated');
+        showToast('Friendly name updated');
         await fetchGateways();
       };
 
@@ -471,44 +643,16 @@
       });
     }
 
-    // ---- History toggle ----
-    async function toggleHistory(btn, mac) {
-      const card = btn.closest('.gw-card');
-      const existing = card.querySelector('.gw-history');
-
-      if (existing) {
-        existing.remove();
-        btn.textContent = 'Show history';
-        return;
-      }
-
-      btn.textContent = 'Loading...';
-      const history = await fetchHistory(mac);
-      btn.textContent = 'Hide history';
-
-      const div = document.createElement('div');
-      div.className = 'gw-history fade-in';
-
-      if (history.length === 0) {
-        div.innerHTML = '<p style="font-size:12px;color:var(--primary-400);">No history yet</p>';
-      } else {
-        div.innerHTML = history.map(h => `
-          <div class="gw-history-row">
-            <span><span class="dot-sm ${h.status}"></span>${h.status}</span>
-            <span>${new Date(h.timestamp + 'Z').toLocaleString()}</span>
-          </div>
-        `).join('');
-      }
-
-      card.appendChild(div);
-    }
-
     // ---- Stats ----
     function updateStats() {
       const online = gateways.filter(g => g.connected).length;
+      const totalUplinks = gateways.reduce((sum, g) => sum + (g.uplinks || 0), 0);
+      const totalDownlinks = gateways.reduce((sum, g) => sum + (g.downlinks || 0), 0);
+
       document.getElementById('statTotal').textContent = gateways.length;
       document.getElementById('statOnline').textContent = online;
-      document.getElementById('statOffline').textContent = gateways.length - online;
+      document.getElementById('statUplinks').textContent = formatNumber(totalUplinks);
+      document.getElementById('statDownlinks').textContent = formatNumber(totalDownlinks);
     }
 
     // ---- Gateway select in subscriber form ----
@@ -517,8 +661,8 @@
       const current = sel.value;
       sel.innerHTML = '<option value="__ALL__">All gateways</option>';
       gateways.forEach(gw => {
-        const name = gw.name || gw.mac;
-        sel.innerHTML += `<option value="${gw.mac}">${escHtml(name)}</option>`;
+        const label = gw.friendly_name || gw.public_key || gw.mac;
+        sel.innerHTML += `<option value="${gw.mac}">${escHtml(label)}</option>`;
       });
       sel.value = current || '__ALL__';
     }
@@ -560,7 +704,9 @@
       }
 
       list.innerHTML = subscribers.map(s => {
-        const gwLabel = s.mac === '__ALL__' ? 'All gateways' : (gateways.find(g => g.mac === s.mac)?.name || s.mac);
+        const gwLabel = s.mac === '__ALL__'
+          ? 'All gateways'
+          : (gateways.find(g => g.mac === s.mac)?.friendly_name || gateways.find(g => g.mac === s.mac)?.public_key || s.mac);
         return `
           <div class="sub-row fade-in">
             <div>
@@ -581,17 +727,12 @@
     // ---- Helpers ----
     function escHtml(str) {
       const d = document.createElement('div');
-      d.textContent = str;
+      d.textContent = str || '';
       return d.innerHTML;
     }
 
-    function timeAgo(isoStr) {
-      const d = new Date(isoStr.endsWith('Z') ? isoStr : isoStr + 'Z');
-      const diff = Math.floor((Date.now() - d.getTime()) / 1000);
-      if (diff < 60) return `${diff}s ago`;
-      if (diff < 3600) return `${Math.floor(diff/60)}m ago`;
-      if (diff < 86400) return `${Math.floor(diff/3600)}h ago`;
-      return `${Math.floor(diff/86400)}d ago`;
+    function escAttr(str) {
+      return (str || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
     }
 
     // ---- Init & polling ----

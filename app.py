@@ -8,6 +8,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import sqlite3
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -29,8 +30,9 @@ MULTI_GW_API = os.getenv("MULTI_GW_API", "http://127.0.0.1:4468")
 MULTI_GW_READ_KEY = os.getenv("MULTI_GW_READ_KEY", "")
 POLL_INTERVAL_SECONDS = int(os.getenv("POLL_INTERVAL_SECONDS", "30"))
 DB_PATH = os.getenv("DB_PATH", "/var/lib/helium-gateway-monitor/monitor.db")
-SES_REGION = os.getenv("SES_REGION", "eu-west-1")
-SES_FROM_EMAIL = os.getenv("SES_FROM_EMAIL", "alerts@sattrack.com.au")
+SES_REGION = os.getenv("SES_REGION", "eu-west-2")
+SES_FROM_EMAIL = os.getenv("SES_FROM_EMAIL", "alerts@sattrack.co.uk")
+REGION = os.getenv("LORAWAN_REGION", "EU868")
 APP_HOST = os.getenv("APP_HOST", "0.0.0.0")
 APP_PORT = int(os.getenv("APP_PORT", "8080"))
 
@@ -53,9 +55,13 @@ def init_db():
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS gateways (
             mac TEXT PRIMARY KEY,
-            name TEXT DEFAULT '',
+            friendly_name TEXT DEFAULT '',
             public_key TEXT DEFAULT '',
             connected INTEGER DEFAULT 0,
+            connected_seconds REAL DEFAULT 0,
+            last_uplink_seconds_ago REAL DEFAULT -1,
+            uplinks INTEGER DEFAULT 0,
+            downlinks INTEGER DEFAULT 0,
             last_seen TEXT DEFAULT '',
             first_seen TEXT DEFAULT ''
         );
@@ -75,8 +81,48 @@ def init_db():
             timestamp TEXT DEFAULT (datetime('now'))
         );
     """)
+    # Migrate: add new columns if upgrading from older schema
+    try:
+        conn.execute("ALTER TABLE gateways ADD COLUMN friendly_name TEXT DEFAULT ''")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        conn.execute("ALTER TABLE gateways ADD COLUMN connected_seconds REAL DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        conn.execute("ALTER TABLE gateways ADD COLUMN last_uplink_seconds_ago REAL DEFAULT -1")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        conn.execute("ALTER TABLE gateways ADD COLUMN uplinks INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        conn.execute("ALTER TABLE gateways ADD COLUMN downlinks INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
     conn.commit()
     conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Prometheus metrics parser
+# ---------------------------------------------------------------------------
+def parse_prometheus_metrics(text: str) -> dict:
+    """Parse Prometheus text format into per-gateway uplink/downlink counts."""
+    metrics = {}
+    for line in text.strip().split("\n"):
+        if line.startswith("#") or not line.strip():
+            continue
+        # Match lines like: metric_name{mac="AABB..."} 1234
+        m = re.match(r'(\w+)\{.*?mac="(\w+)".*?\}\s+([\d.]+)', line)
+        if m:
+            metric_name, mac, value = m.group(1), m.group(2), m.group(3)
+            if mac not in metrics:
+                metrics[mac] = {}
+            metrics[mac][metric_name] = float(value)
+    return metrics
 
 
 # ---------------------------------------------------------------------------
@@ -155,6 +201,16 @@ async def poll_gateways():
             resp = await client.get(f"{MULTI_GW_API}/gateways", headers=headers, timeout=10)
             resp.raise_for_status()
             data = resp.json()
+
+            # Also fetch Prometheus metrics for uplink/downlink counts
+            prom_metrics = {}
+            try:
+                metrics_resp = await client.get(f"{MULTI_GW_API}/metrics", headers=headers, timeout=10)
+                if metrics_resp.status_code == 200:
+                    prom_metrics = parse_prometheus_metrics(metrics_resp.text)
+            except Exception as e:
+                logger.debug(f"Could not fetch metrics: {e}")
+
     except Exception as e:
         logger.warning(f"Failed to poll multi-gateway API: {e}")
         return
@@ -166,14 +222,31 @@ async def poll_gateways():
         mac = gw["mac"]
         connected = 1 if gw.get("connected", False) else 0
         public_key = gw.get("public_key", "")
+        connected_seconds = gw.get("connected_seconds", 0) or 0
+        last_uplink_seconds_ago = gw.get("last_uplink_seconds_ago", -1)
+        if last_uplink_seconds_ago is None:
+            last_uplink_seconds_ago = -1
+
+        # Get uplink/downlink from Prometheus metrics
+        gw_metrics = prom_metrics.get(mac, {})
+        uplinks = int(gw_metrics.get("helium_multi_gateway_uplinks_total",
+                      gw_metrics.get("uplinks_total",
+                      gw_metrics.get("uplinks", 0))))
+        downlinks = int(gw_metrics.get("helium_multi_gateway_downlinks_total",
+                        gw_metrics.get("downlinks_total",
+                        gw_metrics.get("downlinks", 0))))
 
         existing = conn.execute("SELECT * FROM gateways WHERE mac = ?", (mac,)).fetchone()
 
         if existing is None:
             # New gateway — insert and log
             conn.execute(
-                "INSERT INTO gateways (mac, public_key, connected, last_seen, first_seen) VALUES (?, ?, ?, ?, ?)",
-                (mac, public_key, connected, now, now),
+                """INSERT INTO gateways
+                   (mac, public_key, connected, connected_seconds, last_uplink_seconds_ago,
+                    uplinks, downlinks, last_seen, first_seen)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (mac, public_key, connected, connected_seconds, last_uplink_seconds_ago,
+                 uplinks, downlinks, now, now),
             )
             conn.execute("INSERT INTO status_log (mac, status) VALUES (?, ?)",
                          (mac, "online" if connected else "offline"))
@@ -181,8 +254,12 @@ async def poll_gateways():
         else:
             old_connected = existing["connected"]
             conn.execute(
-                "UPDATE gateways SET public_key=?, connected=?, last_seen=? WHERE mac=?",
-                (public_key, connected, now, mac),
+                """UPDATE gateways SET
+                   public_key=?, connected=?, connected_seconds=?, last_uplink_seconds_ago=?,
+                   uplinks=?, downlinks=?, last_seen=?
+                   WHERE mac=?""",
+                (public_key, connected, connected_seconds, last_uplink_seconds_ago,
+                 uplinks, downlinks, now, mac),
             )
 
             # Status changed — log and notify
@@ -191,7 +268,7 @@ async def poll_gateways():
                 conn.execute("INSERT INTO status_log (mac, status) VALUES (?, ?)", (mac, new_status))
                 logger.info(f"Gateway {mac} status changed to {new_status}")
 
-                gateway_name = existing["name"] or ""
+                gateway_name = existing["friendly_name"] or existing["public_key"] or ""
                 notify_field = "notify_online" if connected else "notify_offline"
 
                 subscribers = conn.execute(
@@ -236,14 +313,16 @@ templates = Jinja2Templates(directory=str(templates_dir))
 # ---- Pages ----------------------------------------------------------------
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+    return templates.TemplateResponse("index.html", {"request": request, "region": REGION})
 
 
 # ---- API ------------------------------------------------------------------
 @app.get("/api/gateways")
 async def api_gateways():
     conn = get_db()
-    gateways = conn.execute("SELECT * FROM gateways ORDER BY name, mac").fetchall()
+    gateways = conn.execute(
+        "SELECT * FROM gateways ORDER BY connected DESC, friendly_name, mac"
+    ).fetchall()
     result = [dict(gw) for gw in gateways]
     conn.close()
     return JSONResponse(result)
@@ -260,12 +339,12 @@ async def api_gateway_history(mac: str):
     return JSONResponse(result)
 
 
-@app.post("/api/gateways/{mac}/name")
-async def api_set_name(mac: str, request: Request):
+@app.post("/api/gateways/{mac}/friendly-name")
+async def api_set_friendly_name(mac: str, request: Request):
     body = await request.json()
-    name = body.get("name", "").strip()
+    name = body.get("friendly_name", "").strip()
     conn = get_db()
-    conn.execute("UPDATE gateways SET name = ? WHERE mac = ?", (name, mac))
+    conn.execute("UPDATE gateways SET friendly_name = ? WHERE mac = ?", (name, mac))
     conn.commit()
     conn.close()
     return JSONResponse({"ok": True})
