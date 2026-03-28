@@ -58,7 +58,7 @@ POLL_INTERVAL_SECONDS=30
 DB_PATH=/var/lib/helium-gateway-monitor/monitor.db
 
 # AWS SES settings (update these with your values)
-SES_REGION=eu-west-1
+SES_REGION=eu-west-2
 SES_FROM_EMAIL=alerts@sattrack.co.uk
 
 # Web server (localhost only — nginx handles public traffic)
