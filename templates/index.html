@@ -726,11 +726,11 @@
               <th>Region</th>
               <th>MAC</th>
               <th>Gateway Name</th>
-              <th class="center">On-Chain</th>
               <th>Connected</th>
               <th>Last Uplink</th>
               <th class="right">Uplinks</th>
               <th class="right">Downlinks</th>
+              <th class="center">On-Chain</th>
               <th class="center">Alerts</th>
             </tr>
           </thead>
@@ -1071,11 +1071,11 @@
               <span class="public-key-name">${escHtml(publicKey)}</span>
               ${publicKey ? `<button class="copy-btn" onclick="copyText('${escAttr(publicKey)}')" title="Copy public key">&#x2398;</button>` : ''}
             </td>
-            <td class="center">${onchainBadge}</td>
             <td class="connected-time">${connDuration}</td>
             <td class="last-uplink ${isStale ? 'stale' : ''}">${lastUplink}</td>
             <td class="right packet-count">${formatNumber(gw.uplinks)}</td>
             <td class="right packet-count">${formatNumber(gw.downlinks)}</td>
+            <td class="center">${onchainBadge}</td>
             <td class="center">
               <button class="subscribe-btn" onclick="openSubscribeModal('${gw.mac}')">Subscribe</button>
             </td>
