@@ -40,6 +40,7 @@ ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "hello@sattrack.co.uk")
 BASE_URL = os.getenv("BASE_URL", "https://gateway.sattrack.co.uk")
 NOTIFICATION_CHECK_SECONDS = int(os.getenv("NOTIFICATION_CHECK_SECONDS", "3600"))  # 1 hour
 NOTIFICATION_COOLDOWN_HOURS = int(os.getenv("NOTIFICATION_COOLDOWN_HOURS", "24"))  # 1 email/day/gw
+HELIUM_TOOLS_API = os.getenv("HELIUM_TOOLS_API", "https://heliumtools.org/api/multi-gateway")
 
 logger = logging.getLogger("gateway-monitor")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -708,6 +709,58 @@ async def api_add_subscriber(request: Request):
     send_confirmation_email(email, gateway_name, mac, unsubscribe_token)
 
     return JSONResponse({"ok": True})
+
+
+# ---- Onboarding proxy endpoints (proxied to Helium Tools API) -------------
+@app.post("/api/onchain")
+async def api_onchain(request: Request):
+    """Batch check on-chain status for gateway public keys."""
+    body = await request.json()
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                f"{HELIUM_TOOLS_API}/onchain",
+                json=body,
+                timeout=15,
+            )
+            return JSONResponse(resp.json(), status_code=resp.status_code)
+    except Exception as e:
+        logger.warning(f"Helium Tools onchain proxy error: {e}")
+        raise HTTPException(status_code=502, detail="Failed to reach Helium Tools API")
+
+
+@app.post("/api/gateways/{mac}/issue")
+async def api_issue_gateway(mac: str, request: Request):
+    """Proxy issue-entity transaction generation to Helium Tools."""
+    body = await request.json()
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                f"{HELIUM_TOOLS_API}/gateways/{mac}/issue",
+                json=body,
+                timeout=30,
+            )
+            return JSONResponse(resp.json(), status_code=resp.status_code)
+    except Exception as e:
+        logger.warning(f"Helium Tools issue proxy error for {mac}: {e}")
+        raise HTTPException(status_code=502, detail="Failed to reach Helium Tools API")
+
+
+@app.post("/api/gateways/{mac}/onboard")
+async def api_onboard_gateway(mac: str, request: Request):
+    """Proxy onboard transaction generation to Helium Tools."""
+    body = await request.json()
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                f"{HELIUM_TOOLS_API}/gateways/{mac}/onboard",
+                json=body,
+                timeout=30,
+            )
+            return JSONResponse(resp.json(), status_code=resp.status_code)
+    except Exception as e:
+        logger.warning(f"Helium Tools onboard proxy error for {mac}: {e}")
+        raise HTTPException(status_code=502, detail="Failed to reach Helium Tools API")
 
 
 # ---------------------------------------------------------------------------

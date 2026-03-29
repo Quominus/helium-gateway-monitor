@@ -442,6 +442,222 @@
       z-index: 200;
     }
     .toast.show { transform: translateY(0); opacity: 1; }
+
+    /* ---- On-chain status badge ---- */
+    .onchain-badge {
+      display: inline-block;
+      padding: 3px 10px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 600;
+      white-space: nowrap;
+      cursor: default;
+    }
+    .onchain-badge.onboarded { background: var(--green-bg); color: #16a34a; }
+    .onchain-badge.not-onboarded { background: var(--red-bg); color: #dc2626; cursor: pointer; }
+    .onchain-badge.not-onboarded:hover { background: rgba(239,68,68,0.18); }
+    .onchain-badge.checking { background: var(--primary-100); color: var(--primary-400); }
+
+    /* ---- Onboard modal ---- */
+    .onboard-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(15,23,42,0.55);
+      z-index: 400;
+      align-items: center;
+      justify-content: center;
+    }
+    .onboard-overlay.open { display: flex; }
+    .onboard-modal {
+      background: #fff;
+      border-radius: var(--radius);
+      box-shadow: var(--shadow-lg);
+      width: 560px;
+      max-width: 94vw;
+      max-height: 90vh;
+      overflow-y: auto;
+      animation: fadeIn 0.2s ease;
+    }
+    .onboard-modal-header {
+      padding: 24px 28px 0;
+    }
+    .onboard-modal-header h3 { font-size: 18px; font-weight: 700; color: var(--primary-800); margin-bottom: 2px; }
+    .onboard-modal-header .modal-sub { font-size: 13px; color: var(--primary-500); margin-bottom: 16px; }
+
+    /* Tabs */
+    .onboard-tabs {
+      display: flex;
+      border-bottom: 2px solid var(--primary-200);
+      padding: 0 28px;
+    }
+    .onboard-tab {
+      font-family: 'Poppins', sans-serif;
+      font-size: 13px;
+      font-weight: 600;
+      padding: 10px 20px;
+      border: none;
+      background: none;
+      color: var(--primary-500);
+      cursor: pointer;
+      position: relative;
+      transition: color 0.15s;
+    }
+    .onboard-tab:hover { color: var(--primary-700); }
+    .onboard-tab.active { color: var(--accent); }
+    .onboard-tab.active::after {
+      content: '';
+      position: absolute;
+      bottom: -2px;
+      left: 0;
+      right: 0;
+      height: 2px;
+      background: var(--accent);
+      border-radius: 1px;
+    }
+    .onboard-tab-content { display: none; padding: 24px 28px; }
+    .onboard-tab-content.active { display: block; }
+
+    /* Wallet steps */
+    .onboard-steps { counter-reset: step; }
+    .onboard-step {
+      position: relative;
+      padding: 16px 0 16px 44px;
+      border-left: 2px solid var(--primary-200);
+      margin-left: 14px;
+    }
+    .onboard-step:last-child { border-left-color: transparent; }
+    .onboard-step::before {
+      counter-increment: step;
+      content: counter(step);
+      position: absolute;
+      left: -13px;
+      top: 16px;
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      background: var(--primary-200);
+      color: var(--primary-600);
+      font-size: 12px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .onboard-step.active::before { background: var(--accent); color: #fff; }
+    .onboard-step.done::before { background: var(--green); color: #fff; content: '✓'; }
+    .onboard-step h4 { font-size: 14px; font-weight: 600; color: var(--primary-700); margin-bottom: 4px; }
+    .onboard-step p { font-size: 13px; color: var(--primary-500); line-height: 1.5; }
+
+    .onboard-step .step-action { margin-top: 12px; }
+    .btn-wallet {
+      font-family: 'Poppins', sans-serif;
+      font-size: 13px;
+      font-weight: 600;
+      padding: 10px 20px;
+      border-radius: 8px;
+      border: none;
+      cursor: pointer;
+      transition: all 0.2s;
+      background: linear-gradient(135deg, #9945FF 0%, #14F195 100%);
+      color: #fff;
+    }
+    .btn-wallet:hover { opacity: 0.9; transform: translateY(-1px); }
+    .btn-wallet:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+    /* Map container */
+    #onboardMap {
+      width: 100%;
+      height: 260px;
+      border-radius: 8px;
+      margin-top: 12px;
+      border: 1px solid var(--primary-200);
+    }
+
+    /* Location info */
+    .location-info {
+      display: flex;
+      gap: 12px;
+      margin-top: 10px;
+      flex-wrap: wrap;
+    }
+    .location-info .loc-field {
+      flex: 1;
+      min-width: 100px;
+    }
+    .location-info label {
+      display: block;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--primary-500);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 3px;
+    }
+    .location-info input {
+      font-family: 'Poppins', sans-serif;
+      font-size: 13px;
+      padding: 7px 10px;
+      border: 1px solid var(--primary-300);
+      border-radius: 6px;
+      width: 100%;
+      color: var(--primary-800);
+      outline: none;
+    }
+    .location-info input:focus { border-color: var(--accent); }
+
+    /* CLI tab */
+    .cli-block {
+      background: var(--primary-900);
+      color: #e2e8f0;
+      border-radius: 8px;
+      padding: 16px 20px;
+      font-family: 'Courier New', monospace;
+      font-size: 12px;
+      line-height: 1.8;
+      overflow-x: auto;
+      position: relative;
+    }
+    .cli-block .cli-copy {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      background: rgba(255,255,255,0.1);
+      border: none;
+      color: var(--primary-400);
+      padding: 4px 8px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 11px;
+    }
+    .cli-block .cli-copy:hover { background: rgba(255,255,255,0.2); color: #fff; }
+    .cli-comment { color: #64748B; }
+    .cli-cmd { color: #14F195; }
+
+    /* Onboard modal footer */
+    .onboard-modal-footer {
+      padding: 16px 28px;
+      border-top: 1px solid var(--primary-200);
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+    }
+
+    /* ---- Attribution footer ---- */
+    .attribution-footer {
+      text-align: center;
+      padding: 24px;
+      color: var(--primary-400);
+      font-size: 12px;
+      line-height: 1.6;
+    }
+    .attribution-footer a {
+      color: var(--primary-500);
+      text-decoration: none;
+      font-weight: 500;
+    }
+    .attribution-footer a:hover { color: var(--accent); text-decoration: underline; }
+    .attribution-footer .sep { margin: 0 6px; }
   </style>
 </head>
 <body>
@@ -510,6 +726,7 @@
               <th>Region</th>
               <th>MAC</th>
               <th>Gateway Name</th>
+              <th class="center">On-Chain</th>
               <th>Connected</th>
               <th>Last Uplink</th>
               <th class="right">Uplinks</th>
@@ -519,7 +736,7 @@
           </thead>
           <tbody id="gatewayTableBody">
             <tr class="empty-row" id="emptyRow">
-              <td colspan="9">
+              <td colspan="10">
                 <svg width="40" height="40" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" style="margin-bottom:8px;opacity:0.4;">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.858 15.355-5.858 21.213 0"/>
                 </svg>
@@ -529,6 +746,15 @@
           </tbody>
         </table>
       </div>
+    </div>
+
+    <!-- Attribution -->
+    <div class="attribution-footer">
+      Onboarding powered by <a href="https://heliumtools.org" target="_blank">Helium Tools</a>
+      <span class="sep">|</span>
+      <a href="https://github.com/jthiller/heliumtools" target="_blank">heliumtools</a>
+      <span class="sep">&middot;</span>
+      <a href="https://github.com/quominus/helium-gateway-monitor" target="_blank">helium-gateway-monitor</a>
     </div>
 
   </div>
@@ -553,7 +779,108 @@
     </div>
   </div>
 
+  <!-- Onboard Modal -->
+  <div class="onboard-overlay" id="onboardModal">
+    <div class="onboard-modal">
+      <div class="onboard-modal-header">
+        <h3>Onboard Gateway</h3>
+        <p class="modal-sub" id="onboardGatewayName"></p>
+      </div>
+      <div class="onboard-tabs">
+        <button class="onboard-tab active" onclick="switchOnboardTab('wallet')">Solana Wallet</button>
+        <button class="onboard-tab" onclick="switchOnboardTab('cli')">CLI</button>
+      </div>
+
+      <!-- Wallet Tab -->
+      <div class="onboard-tab-content active" id="tab-wallet">
+        <div class="onboard-steps">
+          <div class="onboard-step active" id="step-connect">
+            <h4>Connect Wallet</h4>
+            <p>Connect a Solana wallet (Phantom, Solflare, etc.) that will own this hotspot.</p>
+            <div class="step-action">
+              <button class="btn-wallet" id="btnConnectWallet" onclick="connectWallet()">Connect Wallet</button>
+              <span id="walletAddress" style="font-size:12px;color:var(--primary-500);margin-left:10px;"></span>
+            </div>
+          </div>
+          <div class="onboard-step" id="step-issue">
+            <h4>Issue Entity</h4>
+            <p>Create the on-chain entity for this hotspot. This registers the gateway's public key on the Helium network.</p>
+            <div class="step-action">
+              <button class="btn btn-primary" id="btnIssue" onclick="issueEntity()" disabled>Issue Entity</button>
+              <span id="issueStatus" style="font-size:12px;color:var(--primary-500);margin-left:10px;"></span>
+            </div>
+          </div>
+          <div class="onboard-step" id="step-location">
+            <h4>Assert Location</h4>
+            <p>Click the map to set your gateway's location, or enter coordinates manually.</p>
+            <div id="onboardMap"></div>
+            <div class="location-info">
+              <div class="loc-field">
+                <label>Latitude</label>
+                <input type="number" id="locLat" step="any" placeholder="51.5074">
+              </div>
+              <div class="loc-field">
+                <label>Longitude</label>
+                <input type="number" id="locLng" step="any" placeholder="-0.1278">
+              </div>
+              <div class="loc-field">
+                <label>Elevation (m)</label>
+                <input type="number" id="locElevation" value="0" step="1">
+              </div>
+              <div class="loc-field">
+                <label>Gain (dBi)</label>
+                <input type="number" id="locGain" value="1.2" step="0.1">
+              </div>
+            </div>
+          </div>
+          <div class="onboard-step" id="step-onboard">
+            <h4>Complete Onboarding</h4>
+            <p>Submit the onboard transaction to register and assert location on the Helium IoT network.</p>
+            <div class="step-action">
+              <button class="btn btn-primary" id="btnOnboard" onclick="completeOnboard()" disabled>Onboard Gateway</button>
+              <span id="onboardStatus" style="font-size:12px;color:var(--primary-500);margin-left:10px;"></span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- CLI Tab -->
+      <div class="onboard-tab-content" id="tab-cli">
+        <p style="font-size:13px;color:var(--primary-600);margin-bottom:16px;">
+          If you prefer to onboard via command line, use the <strong>helium-onboarding-cli</strong> tool.
+          You'll need a Solana keypair file with SOL for transaction fees.
+        </p>
+        <div class="cli-block" id="cliBlock">
+          <button class="cli-copy" onclick="copyCli()">Copy</button>
+          <span class="cli-comment"># Install the Helium onboarding CLI</span><br>
+          <span class="cli-cmd">npm install -g @helium/onboarding-cli</span><br><br>
+          <span class="cli-comment"># Issue the entity (register the hotspot)</span><br>
+          <span class="cli-cmd">helium-onboarding issue \<br>
+          &nbsp;&nbsp;--gateway <span id="cliMac"></span> \<br>
+          &nbsp;&nbsp;--owner &lt;YOUR_SOLANA_ADDRESS&gt;</span><br><br>
+          <span class="cli-comment"># Onboard with location assertion</span><br>
+          <span class="cli-cmd">helium-onboarding onboard \<br>
+          &nbsp;&nbsp;--gateway <span id="cliMac2"></span> \<br>
+          &nbsp;&nbsp;--owner &lt;YOUR_SOLANA_ADDRESS&gt; \<br>
+          &nbsp;&nbsp;--lat &lt;LATITUDE&gt; --lng &lt;LONGITUDE&gt; \<br>
+          &nbsp;&nbsp;--elevation 0 --gain 1.2</span>
+        </div>
+        <p style="font-size:12px;color:var(--primary-400);margin-top:12px;">
+          See the <a href="https://docs.helium.com" target="_blank" style="color:var(--accent);">Helium Docs</a> for full CLI reference and options.
+        </p>
+      </div>
+
+      <div class="onboard-modal-footer">
+        <button class="btn btn-secondary" onclick="closeOnboardModal()">Close</button>
+      </div>
+    </div>
+  </div>
+
   <div class="toast" id="toast"></div>
+
+  <!-- MapLibre GL for location assertion -->
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css">
+  <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
 
   <script>
     const REGION = '{{ region }}';
@@ -564,6 +891,14 @@
     let filteredGateways = [];
     let currentPage = 1;
     let modalMac = '';
+
+    // ---- Onboarding state ----
+    let onchainStatus = {};      // pubkey -> { isOnboarded, entityKey, ... }
+    let onboardMac = '';
+    let onboardPubkey = '';
+    let connectedWallet = null;
+    let mapInstance = null;
+    let mapMarker = null;
 
     // ---- Toast ----
     function showToast(msg) {
@@ -585,7 +920,28 @@
         gateways = await res.json();
         onSearch();
         updateStats();
+        fetchOnchainStatus();
       } catch (e) { console.error('Failed to fetch gateways', e); }
+    }
+
+    async function fetchOnchainStatus() {
+      const pubkeys = gateways.filter(g => g.public_key).map(g => g.public_key);
+      if (pubkeys.length === 0) return;
+      try {
+        const res = await fetch('/api/onchain', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pubkeys }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data && typeof data === 'object') {
+            onchainStatus = data;
+            renderTable();
+            renderPagination();
+          }
+        }
+      } catch (e) { console.debug('On-chain status check failed', e); }
     }
 
 
@@ -670,7 +1026,7 @@
       if (gateways.length === 0) {
         tbody.innerHTML = `
           <tr class="empty-row">
-            <td colspan="9">
+            <td colspan="10">
               <svg width="40" height="40" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" style="margin-bottom:8px;opacity:0.4;">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.858 15.355-5.858 21.213 0"/>
               </svg>
@@ -681,7 +1037,7 @@
       }
 
       if (pageData.length === 0) {
-        tbody.innerHTML = `<tr class="empty-row"><td colspan="9">No gateways match your search.</td></tr>`;
+        tbody.innerHTML = `<tr class="empty-row"><td colspan="10">No gateways match your search.</td></tr>`;
         return;
       }
 
@@ -691,6 +1047,18 @@
         const connDuration = gw.connected ? formatDuration(gw.connected_seconds) : 'Offline';
         const lastUplink = formatLastUplink(gw.last_uplink_seconds_ago);
         const isStale = gw.last_uplink_seconds_ago > 3600 || gw.last_uplink_seconds_ago < 0;
+
+        let onchainBadge = '<span class="onchain-badge checking">...</span>';
+        if (publicKey && onchainStatus[publicKey] !== undefined) {
+          const info = onchainStatus[publicKey];
+          if (info && info.isOnboarded) {
+            onchainBadge = '<span class="onchain-badge onboarded">Onboarded</span>';
+          } else {
+            onchainBadge = `<span class="onchain-badge not-onboarded" onclick="openOnboardModal('${gw.mac}')" title="Click to onboard">Not Onboarded</span>`;
+          }
+        } else if (!publicKey) {
+          onchainBadge = '<span class="onchain-badge checking" title="No public key">—</span>';
+        }
 
         return `
           <tr>
@@ -703,6 +1071,7 @@
               <span class="public-key-name">${escHtml(publicKey)}</span>
               ${publicKey ? `<button class="copy-btn" onclick="copyText('${escAttr(publicKey)}')" title="Copy public key">&#x2398;</button>` : ''}
             </td>
+            <td class="center">${onchainBadge}</td>
             <td class="connected-time">${connDuration}</td>
             <td class="last-uplink ${isStale ? 'stale' : ''}">${lastUplink}</td>
             <td class="right packet-count">${formatNumber(gw.uplinks)}</td>
@@ -783,6 +1152,256 @@
 
     function escAttr(str) {
       return (str || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+    }
+
+    // ---- Onboard modal ----
+    function openOnboardModal(mac) {
+      onboardMac = mac;
+      const gw = gateways.find(g => g.mac === mac);
+      onboardPubkey = gw ? (gw.public_key || '') : '';
+      const name = onboardPubkey || mac;
+      document.getElementById('onboardGatewayName').textContent = `Gateway: ${name}`;
+      document.getElementById('cliMac').textContent = mac;
+      document.getElementById('cliMac2').textContent = mac;
+
+      // Reset steps
+      resetOnboardSteps();
+      switchOnboardTab('wallet');
+      document.getElementById('onboardModal').classList.add('open');
+
+      // Init map lazily
+      setTimeout(initOnboardMap, 200);
+    }
+
+    function closeOnboardModal() {
+      document.getElementById('onboardModal').classList.remove('open');
+      onboardMac = '';
+      onboardPubkey = '';
+    }
+
+    document.getElementById('onboardModal').addEventListener('click', function(e) {
+      if (e.target === this) closeOnboardModal();
+    });
+
+    function switchOnboardTab(tab) {
+      document.querySelectorAll('.onboard-tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.onboard-tab-content').forEach(c => c.classList.remove('active'));
+      event.target.classList.add('active');
+      document.getElementById('tab-' + tab).classList.add('active');
+      if (tab === 'wallet') setTimeout(initOnboardMap, 100);
+    }
+
+    function resetOnboardSteps() {
+      connectedWallet = null;
+      document.getElementById('walletAddress').textContent = '';
+      document.getElementById('issueStatus').textContent = '';
+      document.getElementById('onboardStatus').textContent = '';
+      document.getElementById('btnConnectWallet').disabled = false;
+      document.getElementById('btnConnectWallet').textContent = 'Connect Wallet';
+      document.getElementById('btnIssue').disabled = true;
+      document.getElementById('btnOnboard').disabled = true;
+
+      document.querySelectorAll('.onboard-step').forEach(s => {
+        s.classList.remove('active', 'done');
+      });
+      document.getElementById('step-connect').classList.add('active');
+    }
+
+    // ---- Wallet connect ----
+    async function connectWallet() {
+      const btn = document.getElementById('btnConnectWallet');
+      btn.disabled = true;
+      btn.textContent = 'Connecting...';
+
+      try {
+        let provider = null;
+        if (window.solana && window.solana.isPhantom) {
+          provider = window.solana;
+        } else if (window.solflare && window.solflare.isSolflare) {
+          provider = window.solflare;
+        } else {
+          showToast('No Solana wallet found. Please install Phantom or Solflare.');
+          btn.disabled = false;
+          btn.textContent = 'Connect Wallet';
+          return;
+        }
+
+        const resp = await provider.connect();
+        connectedWallet = {
+          provider,
+          address: resp.publicKey.toString(),
+        };
+
+        const short = connectedWallet.address.slice(0, 4) + '...' + connectedWallet.address.slice(-4);
+        document.getElementById('walletAddress').textContent = short;
+        btn.textContent = 'Connected';
+        btn.style.background = 'var(--green)';
+
+        document.getElementById('step-connect').classList.remove('active');
+        document.getElementById('step-connect').classList.add('done');
+        document.getElementById('step-issue').classList.add('active');
+        document.getElementById('btnIssue').disabled = false;
+
+        showToast('Wallet connected: ' + short);
+      } catch (e) {
+        console.error('Wallet connect error', e);
+        showToast('Wallet connection failed');
+        btn.disabled = false;
+        btn.textContent = 'Connect Wallet';
+      }
+    }
+
+    // ---- Issue entity ----
+    async function issueEntity() {
+      if (!connectedWallet) return;
+      const btn = document.getElementById('btnIssue');
+      const status = document.getElementById('issueStatus');
+      btn.disabled = true;
+      status.textContent = 'Generating transaction...';
+
+      try {
+        const res = await fetch(`/api/gateways/${onboardMac}/issue`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ owner: connectedWallet.address }),
+        });
+
+        if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.detail || 'Issue request failed');
+        }
+
+        const data = await res.json();
+        status.textContent = 'Signing transaction...';
+
+        // Sign and send the transaction
+        if (data.transaction) {
+          const txBytes = Uint8Array.from(atob(data.transaction), c => c.charCodeAt(0));
+          const signedTx = await connectedWallet.provider.signTransaction(
+            // The API returns a serialized transaction
+            { serialize: () => txBytes }
+          );
+          status.textContent = 'Transaction submitted!';
+        }
+
+        status.style.color = 'var(--green)';
+        status.textContent = 'Entity issued successfully!';
+
+        document.getElementById('step-issue').classList.remove('active');
+        document.getElementById('step-issue').classList.add('done');
+        document.getElementById('step-location').classList.add('active');
+        document.getElementById('btnOnboard').disabled = false;
+
+      } catch (e) {
+        console.error('Issue error', e);
+        status.style.color = 'var(--red)';
+        status.textContent = e.message || 'Failed to issue entity';
+        btn.disabled = false;
+      }
+    }
+
+    // ---- Map for location ----
+    function initOnboardMap() {
+      if (mapInstance) {
+        mapInstance.resize();
+        return;
+      }
+      const container = document.getElementById('onboardMap');
+      if (!container || container.offsetHeight === 0) return;
+
+      try {
+        mapInstance = new maplibregl.Map({
+          container: 'onboardMap',
+          style: 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json',
+          center: [-0.1278, 51.5074],
+          zoom: 5,
+        });
+
+        mapInstance.on('click', function(e) {
+          const { lng, lat } = e.lngLat;
+          document.getElementById('locLat').value = lat.toFixed(6);
+          document.getElementById('locLng').value = lng.toFixed(6);
+
+          if (mapMarker) mapMarker.remove();
+          mapMarker = new maplibregl.Marker({ color: '#E22936' })
+            .setLngLat([lng, lat])
+            .addTo(mapInstance);
+        });
+      } catch (e) {
+        console.debug('Map init failed', e);
+      }
+    }
+
+    // ---- Complete onboard ----
+    async function completeOnboard() {
+      if (!connectedWallet) return;
+      const btn = document.getElementById('btnOnboard');
+      const status = document.getElementById('onboardStatus');
+      btn.disabled = true;
+      status.textContent = 'Generating onboard transaction...';
+
+      const lat = parseFloat(document.getElementById('locLat').value);
+      const lng = parseFloat(document.getElementById('locLng').value);
+      const elevation = parseInt(document.getElementById('locElevation').value) || 0;
+      const gain = parseFloat(document.getElementById('locGain').value) || 1.2;
+
+      const body = { owner: connectedWallet.address };
+      if (!isNaN(lat) && !isNaN(lng)) {
+        body.location = { lat, lng };
+        body.elevation = elevation;
+        body.gain = gain;
+      }
+
+      try {
+        const res = await fetch(`/api/gateways/${onboardMac}/onboard`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+
+        if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.detail || 'Onboard request failed');
+        }
+
+        const data = await res.json();
+        status.textContent = 'Signing transaction...';
+
+        if (data.transaction) {
+          const txBytes = Uint8Array.from(atob(data.transaction), c => c.charCodeAt(0));
+          await connectedWallet.provider.signTransaction(
+            { serialize: () => txBytes }
+          );
+        }
+
+        status.style.color = 'var(--green)';
+        status.textContent = 'Gateway onboarded successfully!';
+
+        document.getElementById('step-location').classList.remove('active');
+        document.getElementById('step-location').classList.add('done');
+        document.getElementById('step-onboard').classList.remove('active');
+        document.getElementById('step-onboard').classList.add('done');
+
+        showToast('Gateway onboarded! It may take a few minutes to appear on-chain.');
+
+        // Refresh on-chain status after a delay
+        setTimeout(fetchOnchainStatus, 5000);
+
+      } catch (e) {
+        console.error('Onboard error', e);
+        status.style.color = 'var(--red)';
+        status.textContent = e.message || 'Failed to onboard';
+        btn.disabled = false;
+      }
+    }
+
+    // ---- Copy CLI block ----
+    function copyCli() {
+      const block = document.getElementById('cliBlock');
+      const text = block.innerText
+        .replace('Copy', '')
+        .trim();
+      navigator.clipboard.writeText(text).then(() => showToast('CLI commands copied'));
     }
 
     // ---- Init & polling ----
