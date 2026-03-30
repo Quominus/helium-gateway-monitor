@@ -14,6 +14,7 @@ import express from "express";
 import { Connection, PublicKey, Transaction, Keypair } from "@solana/web3.js";
 import { createHash } from "crypto";
 import { createRequire } from "module";
+import bs58 from "bs58";
 
 // createRequire lets us load CJS packages whose ESM builds are broken
 const require = createRequire(import.meta.url);
@@ -33,17 +34,30 @@ const MULTI_GW_READ_KEY = process.env.MULTI_GW_READ_KEY || "";
 
 const connection = new Connection(SOLANA_RPC, "confirmed");
 
-// Helium program addresses (mainnet) — only safe, known-valid base58
+// Helium program addresses (mainnet)
 const ENTITY_MANAGER_PROGRAM_ID = new PublicKey(
   "hemjuPXBpNvggtaUnN1MwT3wrdhttKEfosTcc2P9Pg8"
 );
-const IOT_SUB_DAO = new PublicKey(
-  "39Lw1RH6zt8AJvKn3BTxmUDofzduCM2J3kSaGDZ8L7Sk"
+const HELIUM_SUB_DAOS_PROGRAM_ID = new PublicKey(
+  "hdaoVTCqhfHHo75XdAMxBKdUqvq1i5bF23sisBqVgGR"
 );
-// The Helium DAO PDA — derived from HNT mint via helium-sub-daos program
-// seeds: ["dao", hntyVP6YFm1Hg25TN9WGLqM12b8TQmcknKrdu1oxWux] @ hdaojPkgSD8bciDc1w2Z4bZBKP8WQHdAqcznVF5bDDo
-const HELIUM_DAO = new PublicKey(
-  "GKbvdYnBQgjqqkoeSRNuhFhFHjuHHJsdCYSGxYiFTB1"
+const HNT_MINT = new PublicKey(
+  "hntyVP6YFm1Hg25TN9WGLqM12b8TQmcknKrdu1oxWux"
+);
+const IOT_MINT = new PublicKey(
+  "iotEVVZLEywoTn1QdwNPddxPWszn3zFhEot3MfL9fns"
+);
+
+// Derive DAO PDA from HNT mint: seeds = ["dao", hntMint]
+const [HELIUM_DAO] = PublicKey.findProgramAddressSync(
+  [Buffer.from("dao", "utf-8"), HNT_MINT.toBuffer()],
+  HELIUM_SUB_DAOS_PROGRAM_ID
+);
+
+// Derive IOT sub_dao PDA from IOT mint: seeds = ["sub_dao", iotMint]
+const [IOT_SUB_DAO] = PublicKey.findProgramAddressSync(
+  [Buffer.from("sub_dao", "utf-8"), IOT_MINT.toBuffer()],
+  HELIUM_SUB_DAOS_PROGRAM_ID
 );
 
 // ---------------------------------------------------------------------------
@@ -51,11 +65,14 @@ const HELIUM_DAO = new PublicKey(
 // ---------------------------------------------------------------------------
 
 /**
- * SHA-256 hash of the entity key string, returned as a Buffer.
- * The Helium SDK hashes entity keys before using them as PDA seeds.
+ * SHA-256 hash of the entity key, returned as a Buffer.
+ * The Helium SDK decodes base58 entity keys to bytes, then hashes them.
+ * This matches keyToAssetKey() in @helium/helium-entity-manager-sdk/pdas.ts
  */
 function hashEntityKey(entityKey) {
-  return createHash("sha256").update(entityKey).digest();
+  // Decode base58 string to raw bytes before hashing (matches SDK behaviour)
+  const keyBytes = bs58.decode(entityKey);
+  return createHash("sha256").update(keyBytes).digest();
 }
 
 /**
@@ -128,30 +145,21 @@ function deriveIotInfoKey(
 
 // Cache for SDK lazy-loading
 let entityManagerSdk = null;
-let splUtils = null;
 
 /**
- * Lazy-load the Helium SDKs via CJS require (their ESM builds have broken imports)
+ * Lazy-load the Helium Entity Manager SDK via CJS require
+ * (their ESM builds have broken internal imports)
  */
-async function loadSdks() {
+async function loadSdk() {
   if (!entityManagerSdk) {
     try {
       entityManagerSdk = require("@helium/helium-entity-manager-sdk");
     } catch (e) {
       console.error("Failed to load entity-manager-sdk via require:", e.message);
-      // Fallback: try dynamic import
       entityManagerSdk = await import("@helium/helium-entity-manager-sdk");
     }
   }
-  if (!splUtils) {
-    try {
-      splUtils = require("@helium/spl-utils");
-    } catch (e) {
-      console.error("Failed to load spl-utils via require:", e.message);
-      splUtils = await import("@helium/spl-utils");
-    }
-  }
-  return { entityManagerSdk, splUtils };
+  return entityManagerSdk;
 }
 
 /**
@@ -239,7 +247,7 @@ const provider = new AnchorProvider(connection, dummyWallet, {
 
 async function getProgram() {
   if (!hemProgram) {
-    const { entityManagerSdk: emSdk } = await loadSdks();
+    const emSdk = await loadSdk();
     // init() expects an AnchorProvider
     hemProgram = await emSdk.init(provider);
   }
@@ -282,17 +290,16 @@ app.post("/gateways/:mac/issue", async (req, res) => {
       });
     }
 
-    const { entityManagerSdk: emSdk } = await loadSdks();
     const program = await getProgram();
 
-    // Encode the entity key the way the SDK expects
-    const encodedKey = emSdk.encodeEntityKey(gw.public_key);
+    // Encode the entity key as raw bytes (bs58 decode) — matches SDK's encodeEntityKey()
+    const entityKeyBytes = Buffer.from(bs58.decode(gw.public_key));
 
-    // Let Anchor resolvers auto-derive PDA accounts (dataOnlyConfig, etc.)
-    // Only pass accounts the resolver can't figure out on its own
+    // Build the issue_data_only_entity_v0 instruction
+    // Anchor resolvers handle dataOnlyConfig, collection, merkle tree, etc.
     const ix = await program.methods
       .issueDataOnlyEntityV0({
-        entityKey: Buffer.from(encodedKey),
+        entityKey: entityKeyBytes,
       })
       .accounts({
         payer: ownerPubkey,
@@ -325,9 +332,14 @@ app.post("/gateways/:mac/issue", async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// POST /gateways/:mac/onboard — generate onboard transaction
-// Uses the SDK's onboardIotHotspot() high-level helper
+// POST /gateways/:mac/onboard — generate onboard-data-only-iot transaction
+//
+// After issue, the entity is a compressed NFT in a Bubblegum merkle tree.
+// To onboard, we need proof data from a DAS-compatible RPC (e.g. Helius).
 // ---------------------------------------------------------------------------
+const DAS_RPC =
+  process.env.DAS_RPC_URL || process.env.SOLANA_RPC_URL || SOLANA_RPC;
+
 app.post("/gateways/:mac/onboard", async (req, res) => {
   try {
     const { mac } = req.params;
@@ -349,24 +361,106 @@ app.post("/gateways/:mac/onboard", async (req, res) => {
       return res.status(400).json({ error: "Gateway has no public key" });
     }
 
-    const { entityManagerSdk: emSdk } = await loadSdks();
+    // Check if already IoT-onboarded
+    const rewardableEntityConfig = deriveRewardableEntityConfigKey(IOT_SUB_DAO);
+    const iotInfoKey = deriveIotInfoKey(rewardableEntityConfig, gw.public_key);
+    const existingIotInfo = await connection.getAccountInfo(iotInfoKey);
+    if (existingIotInfo) {
+      return res.json({
+        gateway: gw.public_key,
+        already_onboarded: true,
+        message: "Hotspot already onboarded to IoT network",
+      });
+    }
 
-    // Build onboard options for the SDK's high-level helper
-    const onboardOpts = {
-      entityKey: gw.public_key,
-      hotspotOwner: ownerPubkey,
-      payer: ownerPubkey,
-      connection,
-      subDao: IOT_SUB_DAO,
-      dao: HELIUM_DAO,
-    };
+    // Verify entity was issued (key_to_asset must exist)
+    const ktaKey = deriveKeyToAsset(HELIUM_DAO, gw.public_key);
+    const ktaInfo = await connection.getAccountInfo(ktaKey);
+    if (!ktaInfo) {
+      return res.status(400).json({
+        error: "Entity not yet issued. Call /issue first.",
+      });
+    }
 
-    if (location) onboardOpts.location = location;
-    if (elevation !== undefined) onboardOpts.elevation = elevation;
-    if (gain !== undefined) onboardOpts.gain = gain;
+    // Fetch the compressed NFT asset info from DAS API
+    // The key_to_asset account stores the asset_id
+    // We need the asset proof for the onboard instruction
+    const ktaAccount = await (await getProgram()).account.keyToAssetV0.fetch(
+      ktaKey
+    );
+    const assetId = ktaAccount.asset;
 
-    // Use the SDK's onboardIotHotspot helper
-    const { instructions } = await emSdk.onboardIotHotspot(onboardOpts);
+    // Get asset proof from DAS RPC
+    const [assetRes, proofRes] = await Promise.all([
+      fetch(DAS_RPC, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: "get-asset",
+          method: "getAsset",
+          params: { id: assetId.toBase58() },
+        }),
+      }),
+      fetch(DAS_RPC, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: "get-proof",
+          method: "getAssetProof",
+          params: { id: assetId.toBase58() },
+        }),
+      }),
+    ]);
+
+    const assetData = await assetRes.json();
+    const proofData = await proofRes.json();
+
+    if (assetData.error || proofData.error) {
+      const dasErr = assetData.error?.message || proofData.error?.message;
+      return res.status(502).json({
+        error: `DAS API error: ${dasErr}. You may need a DAS-compatible RPC like Helius.`,
+      });
+    }
+
+    const asset = assetData.result;
+    const proof = proofData.result;
+
+    const program = await getProgram();
+    const dataOnlyConfig = deriveDataOnlyConfigKey();
+
+    // Build the remaining accounts (merkle proof nodes)
+    const proofNodes = proof.proof.map((p) => ({
+      pubkey: new PublicKey(p),
+      isSigner: false,
+      isWritable: false,
+    }));
+
+    // Build onboard_data_only_iot_hotspot_v0 instruction
+    const { BN } = require("@coral-xyz/anchor");
+
+    const ix = await program.methods
+      .onboardDataOnlyIotHotspotV0({
+        dataHash: [...Buffer.from(asset.compression.data_hash.replace("0x", ""), "hex")],
+        creatorHash: [...Buffer.from(asset.compression.creator_hash.replace("0x", ""), "hex")],
+        root: [...Buffer.from(proof.root.replace("0x", ""), "hex")],
+        index: asset.compression.leaf_id,
+        location: location ? new BN(location) : null,
+        elevation: elevation !== undefined ? elevation : null,
+        gain: gain !== undefined ? gain : null,
+      })
+      .accounts({
+        payer: ownerPubkey,
+        dcFeePayer: ownerPubkey,
+        hotspotOwner: ownerPubkey,
+        dataOnlyConfig,
+        rewardableEntityConfig,
+        merkleTree: new PublicKey(proof.tree_id),
+        keyToAsset: ktaKey,
+      })
+      .remainingAccounts(proofNodes)
+      .instruction();
 
     const { blockhash, lastValidBlockHeight } =
       await connection.getLatestBlockhash();
@@ -376,12 +470,7 @@ app.post("/gateways/:mac/onboard", async (req, res) => {
       feePayer: ownerPubkey,
       lastValidBlockHeight,
     });
-
-    if (Array.isArray(instructions)) {
-      instructions.forEach((ix) => tx.add(ix));
-    } else if (instructions) {
-      tx.add(instructions);
-    }
+    tx.add(ix);
 
     const serialized = tx
       .serialize({ requireAllSignatures: false })
@@ -401,11 +490,15 @@ app.post("/gateways/:mac/onboard", async (req, res) => {
 // ---------------------------------------------------------------------------
 // Health check
 // ---------------------------------------------------------------------------
-app.get("/health", (req, res) => {
-  // Derive the data-only config to prove PDA derivation works
-  let dataOnlyConfig;
+app.get("/health", async (req, res) => {
+  // Derive key PDAs and optionally verify on-chain
+  let dataOnlyConfig, dataOnlyConfigExists;
   try {
     dataOnlyConfig = deriveDataOnlyConfigKey().toBase58();
+    if (req.query.verify) {
+      const info = await connection.getAccountInfo(new PublicKey(dataOnlyConfig));
+      dataOnlyConfigExists = !!info;
+    }
   } catch (e) {
     dataOnlyConfig = `error: ${e.message}`;
   }
@@ -414,7 +507,10 @@ app.get("/health", (req, res) => {
     status: "ok",
     solana_rpc: SOLANA_RPC,
     entity_manager: ENTITY_MANAGER_PROGRAM_ID.toBase58(),
+    helium_dao: HELIUM_DAO.toBase58(),
+    iot_sub_dao: IOT_SUB_DAO.toBase58(),
     data_only_config: dataOnlyConfig,
+    ...(req.query.verify && { data_only_config_exists: dataOnlyConfigExists }),
   });
 });
 
@@ -425,6 +521,8 @@ app.listen(PORT, "127.0.0.1", () => {
   console.log(`Helium onboard service listening on 127.0.0.1:${PORT}`);
   console.log(`Solana RPC: ${SOLANA_RPC}`);
   console.log(`Multi-gateway API: ${MULTI_GW_API}`);
+  console.log(`Helium DAO: ${HELIUM_DAO.toBase58()}`);
+  console.log(`IOT Sub-DAO: ${IOT_SUB_DAO.toBase58()}`);
   console.log(
     `Data-only config PDA: ${deriveDataOnlyConfigKey().toBase58()}`
   );
