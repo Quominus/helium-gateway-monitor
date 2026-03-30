@@ -937,11 +937,17 @@
           const data = await res.json();
           if (data && typeof data === 'object') {
             onchainStatus = data;
-            renderTable();
-            renderPagination();
           }
+        } else {
+          // Mark all as checked but unknown so we don't show "..." forever
+          pubkeys.forEach(pk => { if (!onchainStatus[pk]) onchainStatus[pk] = null; });
         }
-      } catch (e) { console.debug('On-chain status check failed', e); }
+      } catch (e) {
+        console.debug('On-chain status check failed', e);
+        pubkeys.forEach(pk => { if (!onchainStatus[pk]) onchainStatus[pk] = null; });
+      }
+      renderTable();
+      renderPagination();
     }
 
 
@@ -1049,15 +1055,18 @@
         const isStale = gw.last_uplink_seconds_ago > 3600 || gw.last_uplink_seconds_ago < 0;
 
         let onchainBadge = '<span class="onchain-badge checking">...</span>';
-        if (publicKey && onchainStatus[publicKey] !== undefined) {
+        if (!publicKey) {
+          onchainBadge = '<span class="onchain-badge checking" title="No public key">\u2014</span>';
+        } else if (publicKey in onchainStatus) {
           const info = onchainStatus[publicKey];
-          if (info && info.isOnboarded) {
+          if (info === null) {
+            // Check failed — show clickable "Onboard" as fallback
+            onchainBadge = `<span class="onchain-badge not-onboarded" onclick="openOnboardModal('${gw.mac}')" title="Click to onboard">Onboard</span>`;
+          } else if (info && info.isOnboarded) {
             onchainBadge = '<span class="onchain-badge onboarded">Onboarded</span>';
           } else {
             onchainBadge = `<span class="onchain-badge not-onboarded" onclick="openOnboardModal('${gw.mac}')" title="Click to onboard">Not Onboarded</span>`;
           }
-        } else if (!publicKey) {
-          onchainBadge = '<span class="onchain-badge checking" title="No public key">—</span>';
         }
 
         return `
@@ -1065,11 +1074,11 @@
             <td><span class="status-dot ${status}"></span></td>
             <td><span class="region-badge">${escHtml(REGION)}</span></td>
             <td class="mac-cell">
-              ${escHtml(gw.mac)}<button class="copy-btn" onclick="copyText('${gw.mac}')" title="Copy MAC">&#x2398;</button>
+              ${escHtml(gw.mac)}<button class="copy-btn" onclick="copyText('${gw.mac}')" title="Copy MAC"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button>
             </td>
             <td>
-              <span class="public-key-name">${escHtml(publicKey)}</span>
-              ${publicKey ? `<button class="copy-btn" onclick="copyText('${escAttr(publicKey)}')" title="Copy public key">&#x2398;</button>` : ''}
+              <span class="public-key-name" title="${escAttr(publicKey)}">${publicKey ? escHtml(publicKey.slice(0, 8) + '...' + publicKey.slice(-6)) : ''}</span>
+              ${publicKey ? `<button class="copy-btn" onclick="copyText('${escAttr(publicKey)}')" title="Copy public key"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012-2v1"/></svg></button>` : ''}
             </td>
             <td class="connected-time">${connDuration}</td>
             <td class="last-uplink ${isStale ? 'stale' : ''}">${lastUplink}</td>

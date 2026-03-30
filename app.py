@@ -40,7 +40,7 @@ ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "hello@sattrack.co.uk")
 BASE_URL = os.getenv("BASE_URL", "https://gateway.sattrack.co.uk")
 NOTIFICATION_CHECK_SECONDS = int(os.getenv("NOTIFICATION_CHECK_SECONDS", "3600"))  # 1 hour
 NOTIFICATION_COOLDOWN_HOURS = int(os.getenv("NOTIFICATION_COOLDOWN_HOURS", "24"))  # 1 email/day/gw
-HELIUM_TOOLS_API = os.getenv("HELIUM_TOOLS_API", "https://heliumtools.org/api/multi-gateway")
+HELIUM_TOOLS_API = os.getenv("HELIUM_TOOLS_API", "https://api.heliumtools.org/multi-gateway")
 
 logger = logging.getLogger("gateway-monitor")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
