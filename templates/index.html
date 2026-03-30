@@ -887,6 +887,8 @@
     import { latLngToCell } from 'https://esm.sh/h3-js@4.1.0';
     window.animalHash = animalHash;
     window.latLngToCell = latLngToCell;
+    // Signal that the module has loaded
+    window.dispatchEvent(new Event('helium-libs-ready'));
   </script>
 
   <script>
@@ -1487,8 +1489,11 @@
     }
 
     // ---- Init & polling ----
+    // Fetch immediately for data, then re-render once animalHash loads
     fetchGateways();
     setInterval(fetchGateways, 15000);
+    // When the esm.sh module finishes loading, re-render to show hotspot names
+    window.addEventListener('helium-libs-ready', () => fetchGateways());
   </script>
 </body>
 </html>
