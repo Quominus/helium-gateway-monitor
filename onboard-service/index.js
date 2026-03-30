@@ -11,12 +11,13 @@
  */
 
 import express from "express";
-import { Connection, PublicKey, Transaction } from "@solana/web3.js";
+import { Connection, PublicKey, Transaction, Keypair } from "@solana/web3.js";
 import { createHash } from "crypto";
 import { createRequire } from "module";
 
 // createRequire lets us load CJS packages whose ESM builds are broken
 const require = createRequire(import.meta.url);
+const { AnchorProvider, Wallet } = require("@coral-xyz/anchor");
 
 const app = express();
 app.use(express.json());
@@ -225,15 +226,21 @@ app.post("/onchain", async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// Anchor program instance (lazy-loaded via SDK's init())
+// Anchor provider & program instance (lazy-loaded via SDK's init())
 // ---------------------------------------------------------------------------
 let hemProgram = null;
+
+// Read-only Anchor provider — we only build transactions, user signs in browser
+const dummyWallet = new Wallet(Keypair.generate());
+const provider = new AnchorProvider(connection, dummyWallet, {
+  commitment: "confirmed",
+});
 
 async function getProgram() {
   if (!hemProgram) {
     const { entityManagerSdk: emSdk } = await loadSdks();
-    // init() returns an Anchor Program instance for helium-entity-manager
-    hemProgram = await emSdk.init(connection);
+    // init() expects an AnchorProvider
+    hemProgram = await emSdk.init(provider);
   }
   return hemProgram;
 }
