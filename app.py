@@ -433,12 +433,14 @@ async def poll_gateways():
             last_uplink_seconds_ago = -1
 
         gw_metrics = prom_metrics.get(mac, {})
-        uplinks = int(gw_metrics.get("helium_multi_gateway_uplinks_total",
+        uplinks = int(gw_metrics.get("packets_uplink_total",
+                      gw_metrics.get("helium_multi_gateway_uplinks_total",
                       gw_metrics.get("uplinks_total",
-                      gw_metrics.get("uplinks", 0))))
-        downlinks = int(gw_metrics.get("helium_multi_gateway_downlinks_total",
+                      gw_metrics.get("uplinks", 0)))))
+        downlinks = int(gw_metrics.get("packets_downlink_total",
+                        gw_metrics.get("helium_multi_gateway_downlinks_total",
                         gw_metrics.get("downlinks_total",
-                        gw_metrics.get("downlinks", 0))))
+                        gw_metrics.get("downlinks", 0)))))
 
         existing = conn.execute("SELECT * FROM gateways WHERE mac = ?", (mac,)).fetchone()
 
