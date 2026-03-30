@@ -225,7 +225,22 @@ app.post("/onchain", async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// Anchor program instance (lazy-loaded via SDK's init())
+// ---------------------------------------------------------------------------
+let hemProgram = null;
+
+async function getProgram() {
+  if (!hemProgram) {
+    const { entityManagerSdk: emSdk } = await loadSdks();
+    // init() returns an Anchor Program instance for helium-entity-manager
+    hemProgram = await emSdk.init(connection);
+  }
+  return hemProgram;
+}
+
+// ---------------------------------------------------------------------------
 // POST /gateways/:mac/issue — generate issue-entity transaction
+// Uses the Anchor program directly to build issue_data_only_entity_v0 ix
 // ---------------------------------------------------------------------------
 app.post("/gateways/:mac/issue", async (req, res) => {
   try {
@@ -243,15 +258,14 @@ app.post("/gateways/:mac/issue", async (req, res) => {
       return res.status(400).json({ error: "Invalid owner address" });
     }
 
-    // Get the gateway's public key from the multi-gateway API
     const gw = await getGatewayByMac(mac);
     if (!gw.public_key) {
       return res.status(400).json({ error: "Gateway has no public key" });
     }
 
     // Check if already issued
-    const entityKey = deriveKeyToAsset(HELIUM_DAO, gw.public_key);
-    const existingEntity = await connection.getAccountInfo(entityKey);
+    const ktaKey = deriveKeyToAsset(HELIUM_DAO, gw.public_key);
+    const existingEntity = await connection.getAccountInfo(ktaKey);
     if (existingEntity) {
       return res.json({
         gateway: gw.public_key,
@@ -262,6 +276,27 @@ app.post("/gateways/:mac/issue", async (req, res) => {
 
     const { entityManagerSdk: emSdk } = await loadSdks();
 
+    // Encode the entity key the way the SDK expects
+    const encodedKey = emSdk.encodeEntityKey(gw.public_key);
+
+    // Derive required PDA accounts
+    const dataOnlyConfig = emSdk.dataOnlyConfigKey(HELIUM_DAO)[0];
+    const dataOnlyEscrow = emSdk.dataOnlyEscrowKey(dataOnlyConfig)[0];
+
+    const program = await getProgram();
+
+    // Build the issue_data_only_entity_v0 instruction via Anchor
+    const ix = await program.methods
+      .issueDataOnlyEntityV0({
+        entityKey: Buffer.from(encodedKey),
+      })
+      .accounts({
+        dataOnlyConfig,
+        dataOnlyEscrow,
+        payer: ownerPubkey,
+      })
+      .instruction();
+
     const { blockhash, lastValidBlockHeight } =
       await connection.getLatestBlockhash();
 
@@ -270,41 +305,7 @@ app.post("/gateways/:mac/issue", async (req, res) => {
       feePayer: ownerPubkey,
       lastValidBlockHeight,
     });
-
-    // Try known SDK function names for issuing data-only entities
-    const issueOpts = {
-      entityKey: gw.public_key,
-      owner: ownerPubkey,
-      payer: ownerPubkey,
-      connection,
-      dao: HELIUM_DAO,
-      programId: ENTITY_MANAGER_PROGRAM_ID,
-    };
-
-    let ix;
-    if (typeof emSdk.issueDataOnlyEntityV0 === "function") {
-      ix = await emSdk.issueDataOnlyEntityV0(issueOpts);
-    } else if (typeof emSdk.dataOnlyIssueEntityIx === "function") {
-      ix = await emSdk.dataOnlyIssueEntityIx(issueOpts);
-    } else if (typeof emSdk.issue_data_only_entity_v0 === "function") {
-      ix = await emSdk.issue_data_only_entity_v0(issueOpts);
-    } else {
-      // List available exports to help debug
-      const exports = Object.keys(emSdk).filter(
-        (k) => typeof emSdk[k] === "function"
-      );
-      return res.status(501).json({
-        error: "Issue instruction not available in installed SDK version",
-        available_functions: exports.slice(0, 30),
-        hint: "SDK may need updating or function name differs",
-      });
-    }
-
-    if (Array.isArray(ix)) {
-      ix.forEach((i) => tx.add(i));
-    } else {
-      tx.add(ix);
-    }
+    tx.add(ix);
 
     const serialized = tx
       .serialize({ requireAllSignatures: false })
@@ -323,6 +324,7 @@ app.post("/gateways/:mac/issue", async (req, res) => {
 
 // ---------------------------------------------------------------------------
 // POST /gateways/:mac/onboard — generate onboard transaction
+// Uses the SDK's onboardIotHotspot() high-level helper
 // ---------------------------------------------------------------------------
 app.post("/gateways/:mac/onboard", async (req, res) => {
   try {
@@ -347,6 +349,23 @@ app.post("/gateways/:mac/onboard", async (req, res) => {
 
     const { entityManagerSdk: emSdk } = await loadSdks();
 
+    // Build onboard options for the SDK's high-level helper
+    const onboardOpts = {
+      entityKey: gw.public_key,
+      hotspotOwner: ownerPubkey,
+      payer: ownerPubkey,
+      connection,
+      subDao: IOT_SUB_DAO,
+      dao: HELIUM_DAO,
+    };
+
+    if (location) onboardOpts.location = location;
+    if (elevation !== undefined) onboardOpts.elevation = elevation;
+    if (gain !== undefined) onboardOpts.gain = gain;
+
+    // Use the SDK's onboardIotHotspot helper
+    const { instructions } = await emSdk.onboardIotHotspot(onboardOpts);
+
     const { blockhash, lastValidBlockHeight } =
       await connection.getLatestBlockhash();
 
@@ -356,47 +375,10 @@ app.post("/gateways/:mac/onboard", async (req, res) => {
       lastValidBlockHeight,
     });
 
-    // Build onboard options
-    const onboardOpts = {
-      entityKey: gw.public_key,
-      owner: ownerPubkey,
-      payer: ownerPubkey,
-      connection,
-      subDao: IOT_SUB_DAO,
-      dao: HELIUM_DAO,
-      programId: ENTITY_MANAGER_PROGRAM_ID,
-    };
-
-    if (location) onboardOpts.location = location;
-    if (elevation !== undefined) onboardOpts.elevation = elevation;
-    if (gain !== undefined) onboardOpts.gain = gain;
-
-    // Try known SDK function names for onboarding data-only IoT hotspots
-    let ix;
-    if (typeof emSdk.onboardDataOnlyIotHotspotV0 === "function") {
-      ix = await emSdk.onboardDataOnlyIotHotspotV0(onboardOpts);
-    } else if (typeof emSdk.dataOnlyOnboardIotIx === "function") {
-      ix = await emSdk.dataOnlyOnboardIotIx(onboardOpts);
-    } else if (typeof emSdk.onboardIotHotspot === "function") {
-      ix = await emSdk.onboardIotHotspot(onboardOpts);
-    } else if (typeof emSdk.onboard_data_only_iot_hotspot_v0 === "function") {
-      ix = await emSdk.onboard_data_only_iot_hotspot_v0(onboardOpts);
-    } else {
-      const exports = Object.keys(emSdk).filter(
-        (k) => typeof emSdk[k] === "function"
-      );
-      return res.status(501).json({
-        error:
-          "Onboard instruction not available in installed SDK version",
-        available_functions: exports.slice(0, 30),
-        hint: "SDK may need updating or function name differs",
-      });
-    }
-
-    if (Array.isArray(ix)) {
-      ix.forEach((i) => tx.add(i));
-    } else {
-      tx.add(ix);
+    if (Array.isArray(instructions)) {
+      instructions.forEach((ix) => tx.add(ix));
+    } else if (instructions) {
+      tx.add(instructions);
     }
 
     const serialized = tx
