@@ -347,8 +347,24 @@ app.post("/gateways/:mac/issue", async (req, res) => {
       })
       .instruction();
 
-    const { blockhash, lastValidBlockHeight } =
-      await connection.getLatestBlockhash();
+    // Retry blockhash fetch up to 3 times (free RPC can rate-limit)
+    let blockhash, lastValidBlockHeight;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const bhResponse = await connection.getLatestBlockhash("confirmed");
+        blockhash = bhResponse?.blockhash;
+        lastValidBlockHeight = bhResponse?.lastValidBlockHeight;
+        if (blockhash) break;
+      } catch (bhErr) {
+        console.warn(`getLatestBlockhash attempt ${attempt + 1} failed:`, bhErr.message);
+        if (attempt < 2) await new Promise((r) => setTimeout(r, 1000));
+      }
+    }
+    if (!blockhash) {
+      return res.status(502).json({
+        error: "Solana RPC did not return a blockhash after 3 attempts. May be rate-limited.",
+      });
+    }
 
     const tx = new Transaction({
       recentBlockhash: blockhash,
