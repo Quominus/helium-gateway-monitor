@@ -40,9 +40,10 @@ const ENTITY_MANAGER_PROGRAM_ID = new PublicKey(
 const IOT_SUB_DAO = new PublicKey(
   "39Lw1RH6zt8AJvKn3BTxmUDofzduCM2J3kSaGDZ8L7Sk"
 );
-// The Helium DAO (parent of all sub-DAOs)
+// The Helium DAO PDA — derived from HNT mint via helium-sub-daos program
+// seeds: ["dao", hntyVP6YFm1Hg25TN9WGLqM12b8TQmcknKrdu1oxWux] @ hdaojPkgSD8bciDc1w2Z4bZBKP8WQHdAqcznVF5bDDo
 const HELIUM_DAO = new PublicKey(
-  "hdaoVTCqhfHHo75XdAMxBKdUqvq1i5bF23sisBqVgGR"
+  "GKbvdYnBQgjqqkoeSRNuhFhFHjuHHJsdCYSGxYiFTB1"
 );
 
 // ---------------------------------------------------------------------------
@@ -282,24 +283,18 @@ app.post("/gateways/:mac/issue", async (req, res) => {
     }
 
     const { entityManagerSdk: emSdk } = await loadSdks();
+    const program = await getProgram();
 
     // Encode the entity key the way the SDK expects
     const encodedKey = emSdk.encodeEntityKey(gw.public_key);
 
-    // Derive required PDA accounts
-    const dataOnlyConfig = emSdk.dataOnlyConfigKey(HELIUM_DAO)[0];
-    const dataOnlyEscrow = emSdk.dataOnlyEscrowKey(dataOnlyConfig)[0];
-
-    const program = await getProgram();
-
-    // Build the issue_data_only_entity_v0 instruction via Anchor
+    // Let Anchor resolvers auto-derive PDA accounts (dataOnlyConfig, etc.)
+    // Only pass accounts the resolver can't figure out on its own
     const ix = await program.methods
       .issueDataOnlyEntityV0({
         entityKey: Buffer.from(encodedKey),
       })
       .accounts({
-        dataOnlyConfig,
-        dataOnlyEscrow,
         payer: ownerPubkey,
       })
       .instruction();
