@@ -255,6 +255,37 @@ async function getProgram() {
 }
 
 // ---------------------------------------------------------------------------
+// Cached on-chain data from DataOnlyConfigV0 (fetched on first use)
+// ---------------------------------------------------------------------------
+let cachedDocData = null;
+
+async function getDataOnlyConfigData() {
+  if (!cachedDocData) {
+    const program = await getProgram();
+    const emSdk = await loadSdk();
+    const dataOnlyConfigKey = deriveDataOnlyConfigKey();
+    const docAccount = await program.account.dataOnlyConfigV0.fetch(
+      dataOnlyConfigKey
+    );
+    const [entityCreator] = emSdk.entityCreatorKey(dataOnlyConfigKey);
+
+    cachedDocData = {
+      dataOnlyConfig: dataOnlyConfigKey,
+      collection: docAccount.collection,
+      merkleTree: docAccount.merkleTree,
+      dao: HELIUM_DAO,
+      entityCreator,
+    };
+    console.log("Cached dataOnlyConfig data:", {
+      collection: cachedDocData.collection.toBase58(),
+      merkleTree: cachedDocData.merkleTree.toBase58(),
+      entityCreator: cachedDocData.entityCreator.toBase58(),
+    });
+  }
+  return cachedDocData;
+}
+
+// ---------------------------------------------------------------------------
 // POST /gateways/:mac/issue — generate issue-entity transaction
 // Uses the Anchor program directly to build issue_data_only_entity_v0 ix
 // ---------------------------------------------------------------------------
@@ -291,18 +322,28 @@ app.post("/gateways/:mac/issue", async (req, res) => {
     }
 
     const program = await getProgram();
+    const docData = await getDataOnlyConfigData();
 
     // Encode the entity key as raw bytes (bs58 decode) — matches SDK's encodeEntityKey()
     const entityKeyBytes = Buffer.from(bs58.decode(gw.public_key));
 
     // Build the issue_data_only_entity_v0 instruction
-    // Anchor resolvers handle dataOnlyConfig, collection, merkle tree, etc.
+    // Pass key accounts explicitly; SDK resolvers derive the rest
+    // (collectionMetadata, collectionMasterEdition, treeAuthority,
+    //  keyToAsset, dataOnlyEscrow, bubblegumSigner, program addresses)
     const ix = await program.methods
       .issueDataOnlyEntityV0({
         entityKey: entityKeyBytes,
       })
       .accounts({
         payer: ownerPubkey,
+        eccVerifier: ownerPubkey,
+        dataOnlyConfig: docData.dataOnlyConfig,
+        collection: docData.collection,
+        merkleTree: docData.merkleTree,
+        dao: docData.dao,
+        entityCreator: docData.entityCreator,
+        recipient: ownerPubkey,
       })
       .instruction();
 
