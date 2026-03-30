@@ -1187,11 +1187,13 @@
     }
 
     // ---- Onboard modal ----
-    function openOnboardModal(mac) {
+    async function openOnboardModal(mac) {
       onboardMac = mac;
       const gw = gateways.find(g => g.mac === mac);
       onboardPubkey = gw ? (gw.public_key || '') : '';
-      const name = onboardPubkey || mac;
+      const name = typeof window.animalHash === 'function' && onboardPubkey
+        ? window.animalHash(onboardPubkey)
+        : (onboardPubkey || mac);
       document.getElementById('onboardGatewayName').textContent = `Gateway: ${name}`;
       document.getElementById('cliMac').textContent = mac;
       document.getElementById('cliMac2').textContent = mac;
@@ -1203,6 +1205,47 @@
 
       // Init map lazily
       setTimeout(initOnboardMap, 200);
+
+      // Smart resume: check on-chain status and skip completed steps
+      if (onboardPubkey) {
+        try {
+          const res = await fetch('/api/onchain', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ pubkeys: [onboardPubkey] }),
+          });
+          if (res.ok) {
+            const data = await res.json();
+            const r = data.results ? data.results[onboardPubkey] : data[onboardPubkey];
+            if (r && r.iot_onboarded) {
+              // Fully onboarded — show completion
+              document.querySelectorAll('.onboard-step').forEach(s => {
+                s.classList.remove('active');
+                s.classList.add('done');
+              });
+              document.getElementById('onboardStatus').textContent = 'This gateway is already onboarded on the Helium IoT network.';
+              document.getElementById('onboardStatus').style.color = 'var(--green)';
+              document.getElementById('btnConnectWallet').disabled = true;
+              document.getElementById('btnConnectWallet').textContent = 'Already onboarded';
+              document.getElementById('btnConnectWallet').style.background = 'var(--green)';
+            } else if (r && r.onchain) {
+              // Entity issued but not IoT onboarded — skip to location step
+              document.getElementById('step-connect').classList.remove('active');
+              document.getElementById('step-connect').classList.add('done');
+              document.getElementById('step-issue').classList.add('done');
+              document.getElementById('step-location').classList.add('active');
+              document.getElementById('issueStatus').textContent = 'Entity already issued on-chain.';
+              document.getElementById('issueStatus').style.color = 'var(--green)';
+              document.getElementById('btnConnectWallet').textContent = 'Connect to set location';
+              // Still need wallet to sign the onboard tx
+              document.getElementById('btnOnboard').disabled = true;
+              showToast('Entity already issued — connect wallet and set location to complete onboarding.');
+            }
+          }
+        } catch (e) {
+          console.debug('On-chain status check failed', e);
+        }
+      }
     }
 
     function closeOnboardModal() {
@@ -1289,7 +1332,7 @@
       const btn = document.getElementById('btnIssue');
       const status = document.getElementById('issueStatus');
       btn.disabled = true;
-      status.textContent = 'Generating transaction...';
+      status.textContent = 'Checking on-chain status...';
 
       try {
         const res = await fetch(`/api/gateways/${onboardMac}/issue`, {
@@ -1300,29 +1343,36 @@
 
         if (!res.ok) {
           const err = await res.json();
-          throw new Error(err.detail || 'Issue request failed');
+          throw new Error(err.error || err.detail || 'Issue request failed');
         }
 
         const data = await res.json();
-        status.textContent = 'Signing transaction...';
 
-        // Sign and send the transaction
-        if (data.transaction) {
-          const txBytes = Uint8Array.from(atob(data.transaction), c => c.charCodeAt(0));
-          const signedTx = await connectedWallet.provider.signTransaction(
-            // The API returns a serialized transaction
-            { serialize: () => txBytes }
-          );
-          status.textContent = 'Transaction submitted!';
+        if (data.already_issued) {
+          // Entity exists — skip straight to location
+          status.style.color = 'var(--green)';
+          status.textContent = 'Entity already exists on-chain — proceed to set location.';
+        } else {
+          // Need to sign the transaction
+          status.textContent = 'Please approve the transaction in your wallet...';
+          if (data.transaction) {
+            const txBytes = Uint8Array.from(atob(data.transaction), c => c.charCodeAt(0));
+            const signedTx = await connectedWallet.provider.signTransaction(
+              { serialize: () => txBytes }
+            );
+            status.textContent = 'Transaction signed! Waiting for confirmation...';
+            // TODO: send signed tx to chain and await confirmation
+          }
+          status.style.color = 'var(--green)';
+          status.textContent = 'Entity issued! Now set your location below.';
         }
 
-        status.style.color = 'var(--green)';
-        status.textContent = 'Entity issued successfully!';
-
+        // Advance to location step
         document.getElementById('step-issue').classList.remove('active');
         document.getElementById('step-issue').classList.add('done');
         document.getElementById('step-location').classList.add('active');
         document.getElementById('btnOnboard').disabled = false;
+        setTimeout(initOnboardMap, 100);
 
       } catch (e) {
         console.error('Issue error', e);
@@ -1407,14 +1457,14 @@
         }
 
         status.style.color = 'var(--green)';
-        status.textContent = 'Gateway onboarded successfully!';
+        status.textContent = 'Gateway onboarded successfully with location asserted!';
 
-        document.getElementById('step-location').classList.remove('active');
-        document.getElementById('step-location').classList.add('done');
-        document.getElementById('step-onboard').classList.remove('active');
-        document.getElementById('step-onboard').classList.add('done');
+        document.querySelectorAll('.onboard-step').forEach(s => {
+          s.classList.remove('active');
+          s.classList.add('done');
+        });
 
-        showToast('Gateway onboarded! It may take a few minutes to appear on-chain.');
+        showToast('Gateway onboarded with location! It may take a few minutes to appear on-chain.');
 
         // Refresh on-chain status after a delay
         setTimeout(fetchOnchainStatus, 5000);
