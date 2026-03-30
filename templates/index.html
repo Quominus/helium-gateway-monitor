@@ -881,6 +881,8 @@
   <!-- MapLibre GL for location assertion -->
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css">
   <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
+  <!-- Solana web3.js for transaction handling -->
+  <script src="https://unpkg.com/@solana/web3.js@1.95.5/lib/index.iife.min.js"></script>
   <!-- Angry Purple Tiger + H3 for Helium hotspot names and location cells -->
   <script type="module">
     import animalHash from 'https://esm.sh/angry-purple-tiger@1.0.5';
@@ -907,6 +909,11 @@
     let onboardPubkey = '';
     let connectedWallet = null;
     let mapInstance = null;
+
+    // Solana connection for submitting signed transactions
+    const solanaConnection = new window.solanaWeb3.Connection(
+      'https://api.mainnet-beta.solana.com', 'confirmed'
+    );
     let mapMarker = null;
 
     // ---- Toast ----
@@ -1334,7 +1341,7 @@
       const btn = document.getElementById('btnIssue');
       const status = document.getElementById('issueStatus');
       btn.disabled = true;
-      status.textContent = 'Checking on-chain status...';
+      status.textContent = 'Building issue transaction...';
 
       try {
         const res = await fetch(`/api/gateways/${onboardMac}/issue`, {
@@ -1351,22 +1358,35 @@
         const data = await res.json();
 
         if (data.already_issued) {
-          // Entity exists — skip straight to location
           status.style.color = 'var(--green)';
           status.textContent = 'Entity already exists on-chain — proceed to set location.';
-        } else {
-          // Need to sign the transaction
+        } else if (data.transaction) {
+          // Deserialize the unsigned transaction from base64
           status.textContent = 'Please approve the transaction in your wallet...';
-          if (data.transaction) {
-            const txBytes = Uint8Array.from(atob(data.transaction), c => c.charCodeAt(0));
-            const signedTx = await connectedWallet.provider.signTransaction(
-              { serialize: () => txBytes }
-            );
-            status.textContent = 'Transaction signed! Waiting for confirmation...';
-            // TODO: send signed tx to chain and await confirmation
+          const txBytes = Uint8Array.from(atob(data.transaction), c => c.charCodeAt(0));
+          const tx = solanaWeb3.Transaction.from(txBytes);
+
+          // Wallet signs the transaction
+          const signedTx = await connectedWallet.provider.signTransaction(tx);
+
+          // Submit the signed transaction to Solana
+          status.textContent = 'Submitting transaction to Solana...';
+          const signature = await solanaConnection.sendRawTransaction(
+            signedTx.serialize(), { skipPreflight: false, preflightCommitment: 'confirmed' }
+          );
+
+          // Wait for confirmation
+          status.textContent = 'Waiting for confirmation...';
+          const confirmation = await solanaConnection.confirmTransaction(signature, 'confirmed');
+          if (confirmation.value.err) {
+            throw new Error('Transaction failed on-chain: ' + JSON.stringify(confirmation.value.err));
           }
+
           status.style.color = 'var(--green)';
-          status.textContent = 'Entity issued! Now set your location below.';
+          status.textContent = 'Entity issued on-chain! Now set your location below.';
+          showToast('Entity issued! Tx: ' + signature.slice(0, 12) + '...');
+        } else {
+          throw new Error('No transaction returned from server');
         }
 
         // Advance to location step
@@ -1422,17 +1442,23 @@
       const btn = document.getElementById('btnOnboard');
       const status = document.getElementById('onboardStatus');
       btn.disabled = true;
-      status.textContent = 'Generating onboard transaction...';
+      status.textContent = 'Building onboard transaction...';
 
       const lat = parseFloat(document.getElementById('locLat').value);
       const lng = parseFloat(document.getElementById('locLng').value);
       const elevation = parseInt(document.getElementById('locElevation').value) || 0;
       const gain = parseFloat(document.getElementById('locGain').value) || 1.2;
 
-      const body = { owner: connectedWallet.address };
-      if (!isNaN(lat) && !isNaN(lng) && typeof window.latLngToCell === 'function') {
+      if (isNaN(lat) || isNaN(lng)) {
+        status.style.color = 'var(--red)';
+        status.textContent = 'Please click the map to set a location first.';
+        btn.disabled = false;
+        return;
+      }
+
+      const body = { owner: connectedWallet.address, elevation };
+      if (typeof window.latLngToCell === 'function') {
         body.location = window.latLngToCell(lat, lng, 12);
-        body.elevation = elevation;
         body.gain = Math.round(gain * 10);
       }
 
@@ -1445,28 +1471,44 @@
 
         if (!res.ok) {
           const err = await res.json();
-          throw new Error(err.detail || 'Onboard request failed');
+          throw new Error(err.error || err.detail || 'Onboard request failed');
         }
 
         const data = await res.json();
-        status.textContent = 'Signing transaction...';
 
-        if (data.transaction) {
+        if (data.already_onboarded) {
+          status.style.color = 'var(--green)';
+          status.textContent = 'Gateway is already onboarded to the IoT network.';
+        } else if (data.transaction) {
+          // Deserialize, sign, submit, and confirm
+          status.textContent = 'Please approve the transaction in your wallet...';
           const txBytes = Uint8Array.from(atob(data.transaction), c => c.charCodeAt(0));
-          await connectedWallet.provider.signTransaction(
-            { serialize: () => txBytes }
-          );
-        }
+          const tx = solanaWeb3.Transaction.from(txBytes);
 
-        status.style.color = 'var(--green)';
-        status.textContent = 'Gateway onboarded successfully with location asserted!';
+          const signedTx = await connectedWallet.provider.signTransaction(tx);
+
+          status.textContent = 'Submitting onboard transaction to Solana...';
+          const signature = await solanaConnection.sendRawTransaction(
+            signedTx.serialize(), { skipPreflight: false, preflightCommitment: 'confirmed' }
+          );
+
+          status.textContent = 'Waiting for confirmation...';
+          const confirmation = await solanaConnection.confirmTransaction(signature, 'confirmed');
+          if (confirmation.value.err) {
+            throw new Error('Transaction failed on-chain: ' + JSON.stringify(confirmation.value.err));
+          }
+
+          status.style.color = 'var(--green)';
+          status.textContent = 'Gateway onboarded successfully with location asserted!';
+          showToast('Onboarded! Tx: ' + signature.slice(0, 12) + '...');
+        } else {
+          throw new Error('No transaction returned from server');
+        }
 
         document.querySelectorAll('.onboard-step').forEach(s => {
           s.classList.remove('active');
           s.classList.add('done');
         });
-
-        showToast('Gateway onboarded with location! It may take a few minutes to appear on-chain.');
 
         // Refresh on-chain status after a delay
         setTimeout(fetchOnchainStatus, 5000);
