@@ -881,10 +881,12 @@
   <!-- MapLibre GL for location assertion -->
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css">
   <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
-  <!-- Angry Purple Tiger — Helium hotspot name generator -->
+  <!-- Angry Purple Tiger + H3 for Helium hotspot names and location cells -->
   <script type="module">
     import animalHash from 'https://esm.sh/angry-purple-tiger@1.0.5';
+    import { latLngToCell } from 'https://esm.sh/h3-js@4.1.0';
     window.animalHash = animalHash;
+    window.latLngToCell = latLngToCell;
   </script>
 
   <script>
@@ -1376,10 +1378,10 @@
       const gain = parseFloat(document.getElementById('locGain').value) || 1.2;
 
       const body = { owner: connectedWallet.address };
-      if (!isNaN(lat) && !isNaN(lng)) {
-        body.location = { lat, lng };
+      if (!isNaN(lat) && !isNaN(lng) && typeof window.latLngToCell === 'function') {
+        body.location = window.latLngToCell(lat, lng, 12);
         body.elevation = elevation;
-        body.gain = gain;
+        body.gain = Math.round(gain * 10);
       }
 
       try {

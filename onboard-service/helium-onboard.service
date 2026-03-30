@@ -1,0 +1,18 @@
+[Unit]
+Description=Helium IoT Onboarding Service
+After=network.target gateway-monitor.service
+
+[Service]
+Type=simple
+User=gateway-monitor
+Group=gateway-monitor
+WorkingDirectory=/opt/helium-gateway-monitor/onboard-service
+EnvironmentFile=/opt/helium-gateway-monitor/.env
+ExecStart=/usr/bin/node index.js
+Restart=on-failure
+RestartSec=5
+Environment=ONBOARD_PORT=3001
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=multi-user.target
