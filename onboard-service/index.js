@@ -13,6 +13,10 @@
 import express from "express";
 import { Connection, PublicKey, Transaction } from "@solana/web3.js";
 import { createHash } from "crypto";
+import { createRequire } from "module";
+
+// createRequire lets us load CJS packages whose ESM builds are broken
+const require = createRequire(import.meta.url);
 
 const app = express();
 app.use(express.json());
@@ -125,14 +129,25 @@ let entityManagerSdk = null;
 let splUtils = null;
 
 /**
- * Lazy-load the Helium SDKs (they're heavy, load once on first request)
+ * Lazy-load the Helium SDKs via CJS require (their ESM builds have broken imports)
  */
 async function loadSdks() {
   if (!entityManagerSdk) {
-    entityManagerSdk = await import("@helium/helium-entity-manager-sdk");
+    try {
+      entityManagerSdk = require("@helium/helium-entity-manager-sdk");
+    } catch (e) {
+      console.error("Failed to load entity-manager-sdk via require:", e.message);
+      // Fallback: try dynamic import
+      entityManagerSdk = await import("@helium/helium-entity-manager-sdk");
+    }
   }
   if (!splUtils) {
-    splUtils = await import("@helium/spl-utils");
+    try {
+      splUtils = require("@helium/spl-utils");
+    } catch (e) {
+      console.error("Failed to load spl-utils via require:", e.message);
+      splUtils = await import("@helium/spl-utils");
+    }
   }
   return { entityManagerSdk, splUtils };
 }
