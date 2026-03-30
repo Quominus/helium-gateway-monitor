@@ -10,13 +10,9 @@
  *   POST /gateways/:mac/onboard — generate onboard transaction
  */
 
-const express = require("express");
-const {
-  Connection,
-  PublicKey,
-  Transaction,
-} = require("@solana/web3.js");
-const crypto = require("crypto");
+import express from "express";
+import { Connection, PublicKey, Transaction } from "@solana/web3.js";
+import { createHash } from "crypto";
 
 const app = express();
 app.use(express.json());
@@ -53,7 +49,7 @@ const HELIUM_DAO = new PublicKey(
  * The Helium SDK hashes entity keys before using them as PDA seeds.
  */
 function hashEntityKey(entityKey) {
-  return crypto.createHash("sha256").update(entityKey).digest();
+  return createHash("sha256").update(entityKey).digest();
 }
 
 /**
@@ -87,10 +83,8 @@ function deriveKeyToAsset(
 }
 
 /**
- * Derive the iot_info PDA:
- *   seeds = ["iot_info", rewardableEntityConfig, sha256(entityKey)]
- *
- * rewardableEntityConfig is derived from the IoT sub-DAO.
+ * Derive the rewardable_entity_config PDA for IoT:
+ *   seeds = ["rewardable_entity_config", subDao, "IOT"]
  */
 function deriveRewardableEntityConfigKey(
   subDao,
@@ -106,6 +100,10 @@ function deriveRewardableEntityConfigKey(
   )[0];
 }
 
+/**
+ * Derive the iot_info PDA:
+ *   seeds = ["iot_info", rewardableEntityConfig, sha256(entityKey)]
+ */
 function deriveIotInfoKey(
   rewardableEntityConfig,
   entityKey,

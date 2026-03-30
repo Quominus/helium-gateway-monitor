@@ -1,6 +1,7 @@
 {
   "name": "helium-onboard-service",
   "version": "1.0.0",
+  "type": "module",
   "description": "Self-hosted Helium IoT hotspot onboarding API for SatTrack Multi-Gateway",
   "main": "index.js",
   "scripts": {
