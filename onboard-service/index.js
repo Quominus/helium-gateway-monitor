@@ -24,7 +24,7 @@ import {
 import { createHash } from "crypto";
 import { readFileSync } from "fs";
 import { sign } from "@noble/ed25519";
-import { sha512 } from "@noble/hashes/sha2.js";
+import { sha512 } from "@noble/hashes/sha512";
 import { sha256 as sha256Hash } from "js-sha256";
 import bs58 from "bs58";
 
@@ -547,11 +547,10 @@ app.post("/onchain", async (req, res) => {
         if (accountInfo) {
           const iotKey = iotInfoKey(pk);
           const iotInfo = await connection.getAccountInfo(iotKey);
-          const hasLocation = iotInfo && iotInfo.data.length > 41 && iotInfo.data[41] === 1;
           results[pk] = {
             onchain: true,
             iot_onboarded: !!iotInfo,
-            has_location: hasLocation,
+            has_location: false,
           };
         } else {
           results[pk] = {
@@ -805,7 +804,7 @@ app.post("/gateways/:mac/onboard", async (req, res) => {
     res.json({
       gateway: gatewayPubkey,
       already_onboarded: false,
-      transactions: [{ transaction: Buffer.from(vtx.serialize()).toString("base64") }],
+      transaction: Buffer.from(vtx.serialize()).toString("base64"),
     });
   } catch (e) {
     console.error("onboard error:", e);

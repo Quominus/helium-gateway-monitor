@@ -41,7 +41,6 @@ BASE_URL = os.getenv("BASE_URL", "https://gateway.sattrack.co.uk")
 NOTIFICATION_CHECK_SECONDS = int(os.getenv("NOTIFICATION_CHECK_SECONDS", "3600"))  # 1 hour
 NOTIFICATION_COOLDOWN_HOURS = int(os.getenv("NOTIFICATION_COOLDOWN_HOURS", "24"))  # 1 email/day/gw
 ONBOARD_API = os.getenv("ONBOARD_API", "http://127.0.0.1:3001")
-SOLANA_RPC_URL = os.getenv("SOLANA_RPC_URL", "https://api.mainnet-beta.solana.com")
 
 logger = logging.getLogger("gateway-monitor")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -764,30 +763,6 @@ async def api_onboard_gateway(mac: str, request: Request):
     except Exception as e:
         logger.warning(f"Onboard service onboard proxy error for {mac}: {e}")
         raise HTTPException(status_code=502, detail="Failed to reach onboard service")
-
-
-# ---------------------------------------------------------------------------
-# Solana RPC proxy — lets the browser submit signed transactions via Helius
-# without exposing the API key in client-side code.
-# Only allows sendTransaction and confirmTransaction methods.
-# ---------------------------------------------------------------------------
-ALLOWED_RPC_METHODS = {"sendTransaction", "confirmTransaction", "getLatestBlockhash",
-                       "getSignatureStatuses", "getTransaction"}
-
-@app.post("/api/solana-rpc")
-async def solana_rpc_proxy(request: Request):
-    """Proxy Solana JSON-RPC requests to the configured RPC endpoint."""
-    body = await request.json()
-    method = body.get("method", "")
-    if method not in ALLOWED_RPC_METHODS:
-        raise HTTPException(status_code=403, detail=f"RPC method '{method}' not allowed")
-    try:
-        async with httpx.AsyncClient() as client:
-            resp = await client.post(SOLANA_RPC_URL, json=body, timeout=30)
-            return JSONResponse(resp.json(), status_code=resp.status_code)
-    except Exception as e:
-        logger.warning(f"Solana RPC proxy error: {e}")
-        raise HTTPException(status_code=502, detail="Failed to reach Solana RPC")
 
 
 # ---------------------------------------------------------------------------
