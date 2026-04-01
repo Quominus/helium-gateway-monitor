@@ -15,7 +15,11 @@ Features:
 
 Before you start, you'll need:
 
-1. **An Ubuntu EC2 instance** (or similar VPS) with `helium-multi-gateway` already installed and running. The `.deb` package sets up the multi-gateway service on port 4468.
+1. **An Ubuntu EC2 instance** (or similar VPS) with `helium-multi-gateway` already installed and running. This is a separate package that aggregates multiple LoRaWAN gateways into the Helium network. You install it from a `.deb` file:
+   ```bash
+   sudo dpkg -i helium-multi-gateway_0.1.0-1_amd64.deb
+   ```
+   Ask Will for the `.deb` if you don't have it. Once installed, it runs as a systemd service on port 4468 and creates its config at `/etc/helium-multi-gateway/settings.toml`.
 
 2. **A domain name** pointed at your server's public IP (e.g. via an A record in your DNS provider). This is needed for HTTPS/SSL via Let's Encrypt.
 
@@ -24,7 +28,11 @@ Before you start, you'll need:
    - Create a new project and copy your API key
    - Your RPC URL will be: `https://mainnet.helius-rpc.com/?api-key=YOUR_KEY`
 
-4. **Your multi-gateway read key**. This is the API key that `helium-multi-gateway` uses for authentication. You can find it in your multi-gateway config (usually at `/etc/helium-multi-gateway/config.toml` or similar). Look for the `read_key` field.
+4. **Your multi-gateway read key**. This is generated automatically when `helium-multi-gateway` is installed. To find it:
+   ```bash
+   sudo cat /etc/helium-multi-gateway/settings.toml
+   ```
+   Copy the value next to `read_api_key`. This is what the monitor uses to pull gateway status from the multi-gateway API.
 
 5. **Node.js 18+** (for the onboard service). The setup script installs this automatically.
 
