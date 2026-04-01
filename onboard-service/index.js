@@ -1,24 +1,36 @@
 /**
  * Helium IoT Hotspot Onboarding Service
  *
- * Self-hosted API for issuing data-only entities and onboarding
- * hotspots to the Helium IoT network via Solana.
+ * Based on heliumtools.org multi-gateway by Joey Hiller.
+ * Handles issuing data-only entities and onboarding hotspots via Solana.
  *
  * Endpoints:
- *   POST /onchain        — batch check on-chain status for pubkeys
- *   POST /gateways/:mac/issue   — generate issue-entity transaction
+ *   POST /onchain              — batch check on-chain status for pubkeys
+ *   POST /gateways/:mac/issue  — generate issue-entity transaction (ECC-verified)
  *   POST /gateways/:mac/onboard — generate onboard transaction
+ *   GET  /health               — health check
  */
 
 import express from "express";
-import { Connection, PublicKey, Transaction, Keypair } from "@solana/web3.js";
+import {
+  Connection,
+  PublicKey,
+  VersionedTransaction,
+  TransactionMessage,
+  TransactionInstruction,
+  ComputeBudgetProgram,
+  SystemProgram,
+} from "@solana/web3.js";
 import { createHash } from "crypto";
-import { createRequire } from "module";
+import { readFileSync } from "fs";
+import { sign } from "@noble/ed25519";
+import { sha512 } from "@noble/hashes/sha2.js";
+import { sha256 as sha256Hash } from "js-sha256";
 import bs58 from "bs58";
 
-// createRequire lets us load CJS packages whose ESM builds are broken
-const require = createRequire(import.meta.url);
-const { AnchorProvider, Wallet } = require("@coral-xyz/anchor");
+// noble/ed25519 v2 needs sha512 configured
+import * as ed from "@noble/ed25519";
+ed.etc.sha512Sync = (...m) => sha512(ed.etc.concatBytes(...m));
 
 const app = express();
 app.use(express.json());
@@ -29,17 +41,49 @@ app.use(express.json());
 const PORT = process.env.ONBOARD_PORT || 3001;
 const SOLANA_RPC =
   process.env.SOLANA_RPC_URL || "https://api.mainnet-beta.solana.com";
+const DAS_RPC =
+  process.env.DAS_RPC_URL || process.env.SOLANA_RPC_URL || SOLANA_RPC;
 const MULTI_GW_API = process.env.MULTI_GW_API || "http://127.0.0.1:4468";
 const MULTI_GW_READ_KEY = process.env.MULTI_GW_READ_KEY || "";
+const KEYS_DIR =
+  process.env.GATEWAY_KEYS_DIR || "/var/lib/helium-multi-gateway/keys";
+
+const ECC_VERIFIER = new PublicKey(
+  "eccSAJM3tq7nQSpQTm8roxv4FPoipCkMsGizW2KBhqZ"
+);
+const ECC_VERIFIER_URL = "https://ecc-verifier.web.helium.io";
 
 const connection = new Connection(SOLANA_RPC, "confirmed");
 
-// Helium program addresses (mainnet)
-const ENTITY_MANAGER_PROGRAM_ID = new PublicKey(
+// ---------------------------------------------------------------------------
+// Program IDs & constants
+// ---------------------------------------------------------------------------
+const ENTITY_MANAGER = new PublicKey(
   "hemjuPXBpNvggtaUnN1MwT3wrdhttKEfosTcc2P9Pg8"
 );
-const HELIUM_SUB_DAOS_PROGRAM_ID = new PublicKey(
+const SUB_DAOS = new PublicKey(
   "hdaoVTCqhfHHo75XdAMxBKdUqvq1i5bF23sisBqVgGR"
+);
+const BUBBLEGUM = new PublicKey(
+  "BGUMAp9Gq7iTEuizy4pqaxsTyUCBK68MDfK752saRPUY"
+);
+const COMPRESSION = new PublicKey(
+  "cmtDvXumGCrqC1Age74AVPhSRVXJMd8PJS91L8KbNCK"
+);
+const DATA_CREDITS = new PublicKey(
+  "credMBJhYFzfn7NxBMdU4aUqFggAjgztaCcv2Fo6fPT"
+);
+const TOKEN_METADATA = new PublicKey(
+  "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s"
+);
+const SPL_NOOP = new PublicKey(
+  "noopb9bkMVfRPU8AsbpTUg8AQkHtKwMYZiFUjNRtMmV"
+);
+const SPL_TOKEN = new PublicKey(
+  "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+);
+const SPL_ATA = new PublicKey(
+  "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
 );
 const HNT_MINT = new PublicKey(
   "hntyVP6YFm1Hg25TN9WGLqM12b8TQmcknKrdu1oxWux"
@@ -47,124 +91,213 @@ const HNT_MINT = new PublicKey(
 const IOT_MINT = new PublicKey(
   "iotEVVZLEywoTn1QdwNPddxPWszn3zFhEot3MfL9fns"
 );
-
-// Derive DAO PDA from HNT mint: seeds = ["dao", hntMint]
-const [HELIUM_DAO] = PublicKey.findProgramAddressSync(
-  [Buffer.from("dao", "utf-8"), HNT_MINT.toBuffer()],
-  HELIUM_SUB_DAOS_PROGRAM_ID
-);
-
-// Derive IOT sub_dao PDA from IOT mint: seeds = ["sub_dao", iotMint]
-const [IOT_SUB_DAO] = PublicKey.findProgramAddressSync(
-  [Buffer.from("sub_dao", "utf-8"), IOT_MINT.toBuffer()],
-  HELIUM_SUB_DAOS_PROGRAM_ID
+const DC_MINT = new PublicKey(
+  "dcuc8Amr83Wz27ZkQ2K9NS6r8zRpf1J6cvArEBDZDmm"
 );
 
 // ---------------------------------------------------------------------------
-// PDA Derivation helpers (mirrors @helium/helium-entity-manager-sdk/pdas.ts)
+// PDA helpers
+// ---------------------------------------------------------------------------
+function findPDA(seeds, programId) {
+  return PublicKey.findProgramAddressSync(seeds, programId)[0];
+}
+
+// Static PDAs (computed once at module load)
+const DAO_KEY = findPDA(
+  [Buffer.from("dao"), HNT_MINT.toBuffer()],
+  SUB_DAOS
+);
+const IOT_SUB_DAO_KEY = findPDA(
+  [Buffer.from("sub_dao"), IOT_MINT.toBuffer()],
+  SUB_DAOS
+);
+const DATA_ONLY_CONFIG_KEY = findPDA(
+  [Buffer.from("data_only_config"), DAO_KEY.toBuffer()],
+  ENTITY_MANAGER
+);
+const DATA_ONLY_ESCROW_KEY = findPDA(
+  [Buffer.from("data_only_escrow"), DATA_ONLY_CONFIG_KEY.toBuffer()],
+  ENTITY_MANAGER
+);
+const ENTITY_CREATOR_KEY = findPDA(
+  [Buffer.from("entity_creator"), DAO_KEY.toBuffer()],
+  ENTITY_MANAGER
+);
+const REWARDABLE_ENTITY_CONFIG_KEY = findPDA(
+  [
+    Buffer.from("rewardable_entity_config"),
+    IOT_SUB_DAO_KEY.toBuffer(),
+    Buffer.from("IOT"),
+  ],
+  ENTITY_MANAGER
+);
+const DC_KEY = findPDA(
+  [Buffer.from("dc"), DC_MINT.toBuffer()],
+  DATA_CREDITS
+);
+const BUBBLEGUM_SIGNER_KEY = findPDA(
+  [Buffer.from("collection_cpi")],
+  BUBBLEGUM
+);
+
+// Dynamic PDAs
+function entityKeyHash(gatewayPubkeyB58) {
+  const bytes = bs58.decode(gatewayPubkeyB58);
+  return Buffer.from(sha256Hash.arrayBuffer(bytes));
+}
+
+function keyToAssetKey(gatewayPubkeyB58) {
+  return findPDA(
+    [
+      Buffer.from("key_to_asset"),
+      DAO_KEY.toBuffer(),
+      entityKeyHash(gatewayPubkeyB58),
+    ],
+    ENTITY_MANAGER
+  );
+}
+
+function iotInfoKey(gatewayPubkeyB58) {
+  return findPDA(
+    [
+      Buffer.from("iot_info"),
+      REWARDABLE_ENTITY_CONFIG_KEY.toBuffer(),
+      entityKeyHash(gatewayPubkeyB58),
+    ],
+    ENTITY_MANAGER
+  );
+}
+
+function collectionMetadataKey(collection) {
+  return findPDA(
+    [
+      Buffer.from("metadata"),
+      TOKEN_METADATA.toBuffer(),
+      collection.toBuffer(),
+    ],
+    TOKEN_METADATA
+  );
+}
+
+function collectionMasterEditionKey(collection) {
+  return findPDA(
+    [
+      Buffer.from("metadata"),
+      TOKEN_METADATA.toBuffer(),
+      collection.toBuffer(),
+      Buffer.from("edition"),
+    ],
+    TOKEN_METADATA
+  );
+}
+
+function treeAuthorityKey(merkleTree) {
+  return findPDA([merkleTree.toBuffer()], BUBBLEGUM);
+}
+
+function ataAddress(owner, mint) {
+  return findPDA(
+    [owner.toBuffer(), SPL_TOKEN.toBuffer(), mint.toBuffer()],
+    SPL_ATA
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Anchor discriminator helper
+// ---------------------------------------------------------------------------
+function anchorDiscriminator(name) {
+  const hash = sha256Hash(`global:${name}`);
+  return Buffer.from(hash.slice(0, 16), "hex");
+}
+
+// ---------------------------------------------------------------------------
+// Gateway key management
 // ---------------------------------------------------------------------------
 
 /**
- * SHA-256 hash of the entity key, returned as a Buffer.
- * The Helium SDK decodes base58 entity keys to bytes, then hashes them.
- * This matches keyToAssetKey() in @helium/helium-entity-manager-sdk/pdas.ts
+ * Read a gateway key file.
+ * Format: 1 byte type (0x01 = Ed25519) + 32 byte seed + 32 byte public key
+ * Returns { seed, publicKey, heliumPubkey } where heliumPubkey includes the type prefix.
  */
-function hashEntityKey(entityKey) {
-  // Decode base58 string to raw bytes before hashing (matches SDK behaviour)
-  const keyBytes = bs58.decode(entityKey);
-  return createHash("sha256").update(keyBytes).digest();
-}
+function readGatewayKey(mac) {
+  const keyPath = `${KEYS_DIR}/${mac.toUpperCase()}.key`;
+  const raw = readFileSync(keyPath);
 
-/**
- * Derive the data-only config PDA:
- *   seeds = ["data_only_config", dao]
- */
-function deriveDataOnlyConfigKey(
-  dao = HELIUM_DAO,
-  programId = ENTITY_MANAGER_PROGRAM_ID
-) {
-  return PublicKey.findProgramAddressSync(
-    [Buffer.from("data_only_config", "utf-8"), dao.toBuffer()],
-    programId
-  )[0];
-}
-
-/**
- * Derive the key_to_asset PDA:
- *   seeds = ["key_to_asset", dao, sha256(entityKey)]
- */
-function deriveKeyToAsset(
-  dao,
-  entityKey,
-  programId = ENTITY_MANAGER_PROGRAM_ID
-) {
-  const hashed = hashEntityKey(entityKey);
-  return PublicKey.findProgramAddressSync(
-    [Buffer.from("key_to_asset", "utf-8"), dao.toBuffer(), hashed],
-    programId
-  )[0];
-}
-
-/**
- * Derive the rewardable_entity_config PDA for IoT:
- *   seeds = ["rewardable_entity_config", subDao, "IOT"]
- */
-function deriveRewardableEntityConfigKey(
-  subDao,
-  programId = ENTITY_MANAGER_PROGRAM_ID
-) {
-  return PublicKey.findProgramAddressSync(
-    [
-      Buffer.from("rewardable_entity_config", "utf-8"),
-      subDao.toBuffer(),
-      Buffer.from("IOT", "utf-8"),
-    ],
-    programId
-  )[0];
-}
-
-/**
- * Derive the iot_info PDA:
- *   seeds = ["iot_info", rewardableEntityConfig, sha256(entityKey)]
- */
-function deriveIotInfoKey(
-  rewardableEntityConfig,
-  entityKey,
-  programId = ENTITY_MANAGER_PROGRAM_ID
-) {
-  const hashed = hashEntityKey(entityKey);
-  return PublicKey.findProgramAddressSync(
-    [
-      Buffer.from("iot_info", "utf-8"),
-      rewardableEntityConfig.toBuffer(),
-      hashed,
-    ],
-    programId
-  )[0];
-}
-
-// Cache for SDK lazy-loading
-let entityManagerSdk = null;
-
-/**
- * Lazy-load the Helium Entity Manager SDK via CJS require
- * (their ESM builds have broken internal imports)
- */
-async function loadSdk() {
-  if (!entityManagerSdk) {
-    try {
-      entityManagerSdk = require("@helium/helium-entity-manager-sdk");
-    } catch (e) {
-      console.error("Failed to load entity-manager-sdk via require:", e.message);
-      entityManagerSdk = await import("@helium/helium-entity-manager-sdk");
-    }
+  if (raw.length !== 65) {
+    throw new Error(
+      `Invalid key file length: expected 65, got ${raw.length}`
+    );
   }
-  return entityManagerSdk;
+
+  const keyType = raw[0]; // 0x01 = Ed25519
+  const seed = raw.slice(1, 33); // 32-byte private seed
+  const pubBytes = raw.slice(33, 65); // 32-byte public key
+
+  // Helium public key is type-prefixed: [keyType, ...pubBytes]
+  const heliumPubkey = Buffer.concat([Buffer.from([keyType]), pubBytes]);
+
+  return { seed, publicKey: pubBytes, heliumPubkey };
 }
 
 /**
- * Fetch gateway info from the local multi-gateway API
+ * Create and sign a BlockchainTxnAddGatewayV1 protobuf.
+ * Returns { unsigned_msg (hex), gateway_signature (hex) }
+ *
+ * Protobuf fields:
+ *   1: gateway (bytes) — Helium public key with type prefix
+ *   2: owner (bytes)   — Solana address bytes
+ *   4: payer (bytes)   — Solana address bytes
+ *   5: gateway_signature (bytes)
  */
+function encodeProtobufBytes(fieldNum, data) {
+  // Wire type 2 (length-delimited)
+  const tag = (fieldNum << 3) | 2;
+  const tagBytes = [];
+  let t = tag;
+  while (t > 0x7f) {
+    tagBytes.push((t & 0x7f) | 0x80);
+    t >>>= 7;
+  }
+  tagBytes.push(t);
+
+  const lenBytes = [];
+  let len = data.length;
+  while (len > 0x7f) {
+    lenBytes.push((len & 0x7f) | 0x80);
+    len >>>= 7;
+  }
+  lenBytes.push(len);
+
+  return Buffer.concat([
+    Buffer.from(tagBytes),
+    Buffer.from(lenBytes),
+    Buffer.from(data),
+  ]);
+}
+
+async function createAddGatewayTxn(mac, ownerPubkey) {
+  const gwKey = readGatewayKey(mac);
+
+  // Encode the unsigned protobuf (gateway + owner + payer, no signatures)
+  const ownerBytes = ownerPubkey.toBuffer();
+  const unsignedMsg = Buffer.concat([
+    encodeProtobufBytes(1, gwKey.heliumPubkey), // gateway
+    encodeProtobufBytes(2, ownerBytes), // owner
+    encodeProtobufBytes(4, ownerBytes), // payer (same as owner)
+  ]);
+
+  // Sign the unsigned message with the gateway's Ed25519 seed
+  const signature = await ed.signAsync(unsignedMsg, gwKey.seed);
+
+  return {
+    unsigned_msg: Buffer.from(unsignedMsg).toString("hex"),
+    gateway_signature: Buffer.from(signature).toString("hex"),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Fetch gateway info from multi-gateway API
+// ---------------------------------------------------------------------------
 async function getGatewayByMac(mac) {
   const headers = {};
   if (MULTI_GW_READ_KEY) headers["X-API-Key"] = MULTI_GW_READ_KEY;
@@ -182,6 +315,220 @@ async function getGatewayByMac(mac) {
 }
 
 // ---------------------------------------------------------------------------
+// Build issueDataOnlyEntityV0 instruction
+// (based on heliumtools.org by Joey Hiller)
+// ---------------------------------------------------------------------------
+function buildIssueInstruction(
+  owner,
+  gatewayPubkeyB58,
+  merkleTree,
+  collection
+) {
+  const entityKey = bs58.decode(gatewayPubkeyB58);
+
+  // Anchor format: discriminator(8) + borsh(Vec<u8>) = disc + u32_le(len) + bytes
+  const disc = anchorDiscriminator("issue_data_only_entity_v0");
+  const lenBuf = Buffer.alloc(4);
+  lenBuf.writeUInt32LE(entityKey.length);
+  const data = Buffer.concat([disc, lenBuf, Buffer.from(entityKey)]);
+
+  const accounts = [
+    { pubkey: owner, isSigner: true, isWritable: true }, // payer
+    { pubkey: ECC_VERIFIER, isSigner: true, isWritable: false }, // ecc_verifier
+    { pubkey: collection, isSigner: false, isWritable: false }, // collection
+    {
+      pubkey: collectionMetadataKey(collection),
+      isSigner: false,
+      isWritable: true,
+    }, // collection_metadata
+    {
+      pubkey: collectionMasterEditionKey(collection),
+      isSigner: false,
+      isWritable: false,
+    }, // collection_master_edition
+    { pubkey: DATA_ONLY_CONFIG_KEY, isSigner: false, isWritable: true }, // data_only_config
+    { pubkey: ENTITY_CREATOR_KEY, isSigner: false, isWritable: false }, // entity_creator
+    { pubkey: DAO_KEY, isSigner: false, isWritable: false }, // dao
+    {
+      pubkey: keyToAssetKey(gatewayPubkeyB58),
+      isSigner: false,
+      isWritable: true,
+    }, // key_to_asset
+    {
+      pubkey: treeAuthorityKey(merkleTree),
+      isSigner: false,
+      isWritable: true,
+    }, // tree_authority
+    { pubkey: owner, isSigner: false, isWritable: false }, // recipient
+    { pubkey: merkleTree, isSigner: false, isWritable: true }, // merkle_tree
+    { pubkey: DATA_ONLY_ESCROW_KEY, isSigner: false, isWritable: true }, // data_only_escrow
+    { pubkey: BUBBLEGUM_SIGNER_KEY, isSigner: false, isWritable: false }, // bubblegum_signer
+    { pubkey: TOKEN_METADATA, isSigner: false, isWritable: false }, // token_metadata_program
+    { pubkey: SPL_NOOP, isSigner: false, isWritable: false }, // log_wrapper
+    { pubkey: BUBBLEGUM, isSigner: false, isWritable: false }, // bubblegum_program
+    { pubkey: COMPRESSION, isSigner: false, isWritable: false }, // compression_program
+    { pubkey: SystemProgram.programId, isSigner: false, isWritable: false }, // system_program
+  ];
+
+  return new TransactionInstruction({
+    keys: accounts,
+    programId: ENTITY_MANAGER,
+    data,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Build onboardDataOnlyIotHotspotV0 instruction
+// ---------------------------------------------------------------------------
+function encodeOptionU64(hexStr) {
+  if (!hexStr) return Buffer.from([0]);
+  const buf = Buffer.alloc(9);
+  buf[0] = 1;
+  buf.writeBigUInt64LE(BigInt("0x" + hexStr), 1);
+  return buf;
+}
+
+function encodeOptionI32(value) {
+  if (value === null || value === undefined) return Buffer.from([0]);
+  const buf = Buffer.alloc(5);
+  buf[0] = 1;
+  buf.writeInt32LE(value, 1);
+  return buf;
+}
+
+function buildOnboardInstruction(
+  owner,
+  gatewayPubkeyB58,
+  merkleTree,
+  asset,
+  proof,
+  canopyDepth,
+  opts = {}
+) {
+  const disc = anchorDiscriminator("onboard_data_only_iot_hotspot_v0");
+
+  const dataHash = Buffer.from(bs58.decode(asset.compression.data_hash));
+  const creatorHash = Buffer.from(bs58.decode(asset.compression.creator_hash));
+  const root = Buffer.from(bs58.decode(proof.root));
+  const indexBuf = Buffer.alloc(4);
+  indexBuf.writeUInt32LE(asset.compression.leaf_id);
+
+  const data = Buffer.concat([
+    disc,
+    dataHash,
+    creatorHash,
+    root,
+    indexBuf,
+    encodeOptionU64(opts.location),
+    encodeOptionI32(opts.elevation),
+    encodeOptionI32(opts.gain),
+  ]);
+
+  const accounts = [
+    { pubkey: owner, isSigner: true, isWritable: true }, // payer
+    { pubkey: owner, isSigner: true, isWritable: true }, // dc_fee_payer
+    {
+      pubkey: iotInfoKey(gatewayPubkeyB58),
+      isSigner: false,
+      isWritable: true,
+    }, // iot_info
+    { pubkey: owner, isSigner: true, isWritable: true }, // hotspot_owner
+    { pubkey: merkleTree, isSigner: false, isWritable: false }, // merkle_tree
+    {
+      pubkey: ataAddress(owner, DC_MINT),
+      isSigner: false,
+      isWritable: true,
+    }, // dc_burner
+    {
+      pubkey: REWARDABLE_ENTITY_CONFIG_KEY,
+      isSigner: false,
+      isWritable: false,
+    }, // rewardable_entity_config
+    { pubkey: DATA_ONLY_CONFIG_KEY, isSigner: false, isWritable: false }, // data_only_config
+    { pubkey: DAO_KEY, isSigner: false, isWritable: false }, // dao
+    {
+      pubkey: keyToAssetKey(gatewayPubkeyB58),
+      isSigner: false,
+      isWritable: false,
+    }, // key_to_asset
+    { pubkey: IOT_SUB_DAO_KEY, isSigner: false, isWritable: true }, // sub_dao
+    { pubkey: DC_MINT, isSigner: false, isWritable: true }, // dc_mint
+    { pubkey: DC_KEY, isSigner: false, isWritable: false }, // dc
+    { pubkey: COMPRESSION, isSigner: false, isWritable: false }, // compression_program
+    { pubkey: DATA_CREDITS, isSigner: false, isWritable: false }, // data_credits_program
+    { pubkey: SPL_TOKEN, isSigner: false, isWritable: false }, // token_program
+    { pubkey: SPL_ATA, isSigner: false, isWritable: false }, // associated_token_program
+    { pubkey: SystemProgram.programId, isSigner: false, isWritable: false }, // system_program
+    { pubkey: SUB_DAOS, isSigner: false, isWritable: false }, // helium_sub_daos_program
+  ];
+
+  // Proof accounts, trimmed by canopy depth
+  const proofPath = proof.proof.slice(
+    0,
+    proof.proof.length - canopyDepth
+  );
+  for (const proofKey of proofPath) {
+    accounts.push({
+      pubkey: new PublicKey(proofKey),
+      isSigner: false,
+      isWritable: false,
+    });
+  }
+
+  return new TransactionInstruction({
+    keys: accounts,
+    programId: ENTITY_MANAGER,
+    data,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// DAS API helpers
+// ---------------------------------------------------------------------------
+async function fetchAsset(rpcUrl, assetId) {
+  const res = await fetch(rpcUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "getAsset",
+      params: { id: assetId },
+    }),
+  });
+  const data = await res.json();
+  if (data.error) throw new Error(`getAsset: ${data.error.message}`);
+  return data.result;
+}
+
+async function fetchAssetProof(rpcUrl, assetId) {
+  const res = await fetch(rpcUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "getAssetProof",
+      params: { id: assetId },
+    }),
+  });
+  const data = await res.json();
+  if (data.error) throw new Error(`getAssetProof: ${data.error.message}`);
+  return data.result;
+}
+
+function getCanopyDepth(treeAccountData) {
+  const maxBufferSize = treeAccountData.readUInt32LE(2);
+  const maxDepth = treeAccountData.readUInt32LE(6);
+  const headerSize = 56;
+  const changeLogEntrySize = 32 + maxDepth * 32 + 4 + 4;
+  const treeDataSize = 24 + maxBufferSize * changeLogEntrySize + maxDepth * 32;
+  const canopyBytes = treeAccountData.length - headerSize - treeDataSize;
+  if (canopyBytes <= 0) return 0;
+  return Math.floor(Math.log2(canopyBytes / 32 + 2)) - 1;
+}
+
+// ---------------------------------------------------------------------------
 // POST /onchain — batch check on-chain status
 // ---------------------------------------------------------------------------
 app.post("/onchain", async (req, res) => {
@@ -191,24 +538,20 @@ app.post("/onchain", async (req, res) => {
       return res.status(400).json({ error: "pubkeys array required" });
     }
 
-    const rewardableEntityConfig = deriveRewardableEntityConfigKey(IOT_SUB_DAO);
     const results = {};
-
     for (const pk of pubkeys) {
       try {
-        // Derive key_to_asset PDA using SHA-256 hashed entity key
-        const entityKey = deriveKeyToAsset(HELIUM_DAO, pk);
-        const accountInfo = await connection.getAccountInfo(entityKey);
+        const ktaKey = keyToAssetKey(pk);
+        const accountInfo = await connection.getAccountInfo(ktaKey);
 
         if (accountInfo) {
-          // Entity exists — check if IoT onboarded
-          const iotInfoKey = deriveIotInfoKey(rewardableEntityConfig, pk);
-          const iotInfo = await connection.getAccountInfo(iotInfoKey);
-
+          const iotKey = iotInfoKey(pk);
+          const iotInfo = await connection.getAccountInfo(iotKey);
+          const hasLocation = iotInfo && iotInfo.data.length > 41 && iotInfo.data[41] === 1;
           results[pk] = {
             onchain: true,
             iot_onboarded: !!iotInfo,
-            has_location: false, // TODO: decode iotInfo to check location
+            has_location: hasLocation,
           };
         } else {
           results[pk] = {
@@ -235,59 +578,8 @@ app.post("/onchain", async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// Anchor provider & program instance (lazy-loaded via SDK's init())
-// ---------------------------------------------------------------------------
-let hemProgram = null;
-
-// Read-only Anchor provider — we only build transactions, user signs in browser
-const dummyWallet = new Wallet(Keypair.generate());
-const provider = new AnchorProvider(connection, dummyWallet, {
-  commitment: "confirmed",
-});
-
-async function getProgram() {
-  if (!hemProgram) {
-    const emSdk = await loadSdk();
-    // init() expects an AnchorProvider
-    hemProgram = await emSdk.init(provider);
-  }
-  return hemProgram;
-}
-
-// ---------------------------------------------------------------------------
-// Cached on-chain data from DataOnlyConfigV0 (fetched on first use)
-// ---------------------------------------------------------------------------
-let cachedDocData = null;
-
-async function getDataOnlyConfigData() {
-  if (!cachedDocData) {
-    const program = await getProgram();
-    const emSdk = await loadSdk();
-    const dataOnlyConfigKey = deriveDataOnlyConfigKey();
-    const docAccount = await program.account.dataOnlyConfigV0.fetch(
-      dataOnlyConfigKey
-    );
-    const [entityCreator] = emSdk.entityCreatorKey(dataOnlyConfigKey);
-
-    cachedDocData = {
-      dataOnlyConfig: dataOnlyConfigKey,
-      collection: docAccount.collection,
-      merkleTree: docAccount.merkleTree,
-      dao: HELIUM_DAO,
-      entityCreator,
-    };
-    console.log("Cached dataOnlyConfig data:", {
-      collection: cachedDocData.collection.toBase58(),
-      merkleTree: cachedDocData.merkleTree.toBase58(),
-      entityCreator: cachedDocData.entityCreator.toBase58(),
-    });
-  }
-  return cachedDocData;
-}
-
-// ---------------------------------------------------------------------------
-// POST /gateways/:mac/issue — generate issue-entity transaction
-// Uses the Anchor program directly to build issue_data_only_entity_v0 ix
+// POST /gateways/:mac/issue — issue entity via ECC verifier
+// (based on heliumtools.org by Joey Hiller)
 // ---------------------------------------------------------------------------
 app.post("/gateways/:mac/issue", async (req, res) => {
   try {
@@ -310,60 +602,101 @@ app.post("/gateways/:mac/issue", async (req, res) => {
       return res.status(400).json({ error: "Gateway has no public key" });
     }
 
+    const gatewayPubkey = gw.public_key;
+
     // Check if already issued
-    const ktaKey = deriveKeyToAsset(HELIUM_DAO, gw.public_key);
+    const ktaKey = keyToAssetKey(gatewayPubkey);
     const existingEntity = await connection.getAccountInfo(ktaKey);
     if (existingEntity) {
       return res.json({
-        gateway: gw.public_key,
+        gateway: gatewayPubkey,
         already_issued: true,
-        message: "Entity already exists on-chain",
+        transactions: [],
       });
     }
 
-    const program = await getProgram();
-    const docData = await getDataOnlyConfigData();
+    // Step 1: Sign the add-gateway message with the gateway's key
+    console.log(`Signing add-gateway for ${mac}...`);
+    const addTxnData = await createAddGatewayTxn(mac, ownerPubkey);
 
-    // Encode the entity key as raw bytes (bs58 decode) — matches SDK's encodeEntityKey()
-    const entityKeyBytes = Buffer.from(bs58.decode(gw.public_key));
+    // Step 2: Read on-chain config to get collection + merkle tree
+    const [configAccount, { blockhash }] = await Promise.all([
+      connection.getAccountInfo(DATA_ONLY_CONFIG_KEY),
+      connection.getLatestBlockhash(),
+    ]);
 
-    // Build the issue_data_only_entity_v0 instruction
-    // Pass key accounts explicitly; SDK resolvers derive the rest
-    // (collectionMetadata, collectionMasterEdition, treeAuthority,
-    //  keyToAsset, dataOnlyEscrow, bubblegumSigner, program addresses)
-    const ix = await program.methods
-      .issueDataOnlyEntityV0({
-        entityKey: entityKeyBytes,
-      })
-      .accounts({
-        payer: ownerPubkey,
-        eccVerifier: ownerPubkey,
-        dataOnlyConfig: docData.dataOnlyConfig,
-        collection: docData.collection,
-        merkleTree: docData.merkleTree,
-        dao: docData.dao,
-        entityCreator: docData.entityCreator,
-        recipient: ownerPubkey,
-      })
-      .instruction();
+    if (!configAccount) {
+      return res
+        .status(500)
+        .json({ error: "DataOnlyConfig account not found on-chain" });
+    }
 
-    const { blockhash, lastValidBlockHeight } =
-      await connection.getLatestBlockhash("confirmed");
+    // DataOnlyConfigV0 layout: discriminator(8) + authority(32) + bumpSeed(1) + collection(32) + merkleTree(32)
+    const COLLECTION_OFFSET = 8 + 32 + 1;
+    const MERKLE_OFFSET = COLLECTION_OFFSET + 32;
+    const configData = configAccount.data;
+    const collection = new PublicKey(
+      configData.slice(COLLECTION_OFFSET, COLLECTION_OFFSET + 32)
+    );
+    const merkleTree = new PublicKey(
+      configData.slice(MERKLE_OFFSET, MERKLE_OFFSET + 32)
+    );
 
-    const tx = new Transaction();
-    tx.recentBlockhash = blockhash;
-    tx.feePayer = ownerPubkey;
-    tx.lastValidBlockHeight = lastValidBlockHeight;
-    tx.add(ix);
+    // Step 3: Build the Solana transaction
+    const issueIx = buildIssueInstruction(
+      ownerPubkey,
+      gatewayPubkey,
+      merkleTree,
+      collection
+    );
+    const computeBudgetIx = ComputeBudgetProgram.setComputeUnitLimit({
+      units: 300_000,
+    });
+    const computePriceIx = ComputeBudgetProgram.setComputeUnitPrice({
+      microLamports: 1,
+    });
 
-    const serialized = tx
-      .serialize({ requireAllSignatures: false })
-      .toString("base64");
+    const message = new TransactionMessage({
+      payerKey: ownerPubkey,
+      recentBlockhash: blockhash,
+      instructions: [computeBudgetIx, computePriceIx, issueIx],
+    }).compileToLegacyMessage();
 
+    const vtx = new VersionedTransaction(message);
+    const serializedTx = Buffer.from(vtx.serialize()).toString("hex");
+
+    // Step 4: Call the ECC verifier to co-sign
+    console.log(`Calling ECC verifier for ${mac}...`);
+    const verifyRes = await fetch(`${ECC_VERIFIER_URL}/verify`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        transaction: serializedTx,
+        msg: addTxnData.unsigned_msg,
+        signature: addTxnData.gateway_signature,
+      }),
+    });
+
+    if (!verifyRes.ok) {
+      const errText = await verifyRes.text();
+      console.error(`ECC verifier error: ${verifyRes.status} ${errText}`);
+      return res
+        .status(500)
+        .json({ error: `ECC verifier failed: ${errText}` });
+    }
+
+    const verifyData = await verifyRes.json();
+    const signedWire = Buffer.from(verifyData.transaction, "hex");
+
+    console.log(`Issue transaction ready for ${mac}`);
+
+    // Return the ECC-signed transaction for the frontend wallet to co-sign
     res.json({
-      gateway: gw.public_key,
+      gateway: gatewayPubkey,
       already_issued: false,
-      transaction: serialized,
+      transactions: [
+        { type: "issue", transaction: signedWire.toString("base64") },
+      ],
     });
   } catch (e) {
     console.error("issue error:", e);
@@ -372,14 +705,8 @@ app.post("/gateways/:mac/issue", async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// POST /gateways/:mac/onboard — generate onboard-data-only-iot transaction
-//
-// After issue, the entity is a compressed NFT in a Bubblegum merkle tree.
-// To onboard, we need proof data from a DAS-compatible RPC (e.g. Helius).
+// POST /gateways/:mac/onboard — generate onboard transaction
 // ---------------------------------------------------------------------------
-const DAS_RPC =
-  process.env.DAS_RPC_URL || process.env.SOLANA_RPC_URL || SOLANA_RPC;
-
 app.post("/gateways/:mac/onboard", async (req, res) => {
   try {
     const { mac } = req.params;
@@ -401,124 +728,84 @@ app.post("/gateways/:mac/onboard", async (req, res) => {
       return res.status(400).json({ error: "Gateway has no public key" });
     }
 
-    // Check if already IoT-onboarded
-    const rewardableEntityConfig = deriveRewardableEntityConfigKey(IOT_SUB_DAO);
-    const iotInfoKey = deriveIotInfoKey(rewardableEntityConfig, gw.public_key);
-    const existingIotInfo = await connection.getAccountInfo(iotInfoKey);
-    if (existingIotInfo) {
-      return res.json({
-        gateway: gw.public_key,
-        already_onboarded: true,
-        message: "Hotspot already onboarded to IoT network",
-      });
-    }
+    const gatewayPubkey = gw.public_key;
 
-    // Verify entity was issued (key_to_asset must exist)
-    const ktaKey = deriveKeyToAsset(HELIUM_DAO, gw.public_key);
-    const ktaInfo = await connection.getAccountInfo(ktaKey);
-    if (!ktaInfo) {
-      return res.status(400).json({
-        error: "Entity not yet issued. Call /issue first.",
-      });
-    }
-
-    // Fetch the compressed NFT asset info from DAS API
-    // The key_to_asset account stores the asset_id
-    // We need the asset proof for the onboard instruction
-    const ktaAccount = await (await getProgram()).account.keyToAssetV0.fetch(
-      ktaKey
-    );
-    const assetId = ktaAccount.asset;
-
-    // Get asset proof from DAS RPC
-    const [assetRes, proofRes] = await Promise.all([
-      fetch(DAS_RPC, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          id: "get-asset",
-          method: "getAsset",
-          params: { id: assetId.toBase58() },
-        }),
-      }),
-      fetch(DAS_RPC, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          id: "get-proof",
-          method: "getAssetProof",
-          params: { id: assetId.toBase58() },
-        }),
-      }),
+    // Check state: must be issued but not yet onboarded
+    const ktaKey = keyToAssetKey(gatewayPubkey);
+    const [ktaAccount, iotInfoAccount, configAccount] = await Promise.all([
+      connection.getAccountInfo(ktaKey),
+      connection.getAccountInfo(iotInfoKey(gatewayPubkey)),
+      connection.getAccountInfo(DATA_ONLY_CONFIG_KEY),
     ]);
 
-    const assetData = await assetRes.json();
-    const proofData = await proofRes.json();
-
-    if (assetData.error || proofData.error) {
-      const dasErr = assetData.error?.message || proofData.error?.message;
-      return res.status(502).json({
-        error: `DAS API error: ${dasErr}. You may need a DAS-compatible RPC like Helius.`,
+    if (!ktaAccount) {
+      return res.status(400).json({
+        error: "Gateway not yet issued on-chain. Run issue step first.",
+      });
+    }
+    if (iotInfoAccount) {
+      return res.json({
+        gateway: gatewayPubkey,
+        already_onboarded: true,
       });
     }
 
-    const asset = assetData.result;
-    const proof = proofData.result;
+    // Get asset ID from key_to_asset account
+    // Layout: discriminator(8) + dao(32) + asset(32) + ...
+    const assetId = new PublicKey(ktaAccount.data.slice(40, 72)).toBase58();
+    const MERKLE_OFFSET = 8 + 32 + 1 + 32;
+    const merkleTree = new PublicKey(
+      configAccount.data.slice(MERKLE_OFFSET, MERKLE_OFFSET + 32)
+    );
 
-    const program = await getProgram();
-    const dataOnlyConfig = deriveDataOnlyConfigKey();
+    // Fetch DAS data, blockhash, and tree account in parallel
+    const [asset, proof, { blockhash }, treeAccount] = await Promise.all([
+      fetchAsset(DAS_RPC, assetId),
+      fetchAssetProof(DAS_RPC, assetId),
+      connection.getLatestBlockhash(),
+      connection.getAccountInfo(merkleTree),
+    ]);
 
-    // Build the remaining accounts (merkle proof nodes)
-    const proofNodes = proof.proof.map((p) => ({
-      pubkey: new PublicKey(p),
-      isSigner: false,
-      isWritable: false,
-    }));
+    if (!treeAccount) {
+      return res
+        .status(500)
+        .json({ error: "Merkle tree account not found" });
+    }
+    const canopyDepth = getCanopyDepth(treeAccount.data);
 
-    // Build onboard_data_only_iot_hotspot_v0 instruction
-    const { BN } = require("@coral-xyz/anchor");
+    const onboardIx = buildOnboardInstruction(
+      ownerPubkey,
+      gatewayPubkey,
+      merkleTree,
+      asset,
+      proof,
+      canopyDepth,
+      {
+        location: location || null,
+        elevation: elevation ?? null,
+        gain: gain ?? null,
+      }
+    );
 
-    const ix = await program.methods
-      .onboardDataOnlyIotHotspotV0({
-        dataHash: [...Buffer.from(asset.compression.data_hash.replace("0x", ""), "hex")],
-        creatorHash: [...Buffer.from(asset.compression.creator_hash.replace("0x", ""), "hex")],
-        root: [...Buffer.from(proof.root.replace("0x", ""), "hex")],
-        index: asset.compression.leaf_id,
-        location: location ? new BN(location) : null,
-        elevation: elevation !== undefined ? elevation : null,
-        gain: gain !== undefined ? gain : null,
-      })
-      .accounts({
-        payer: ownerPubkey,
-        dcFeePayer: ownerPubkey,
-        hotspotOwner: ownerPubkey,
-        dataOnlyConfig,
-        rewardableEntityConfig,
-        merkleTree: new PublicKey(proof.tree_id),
-        keyToAsset: ktaKey,
-      })
-      .remainingAccounts(proofNodes)
-      .instruction();
+    const computeBudgetIx = ComputeBudgetProgram.setComputeUnitLimit({
+      units: 300_000,
+    });
+    const computePriceIx = ComputeBudgetProgram.setComputeUnitPrice({
+      microLamports: 1,
+    });
 
-    const { blockhash, lastValidBlockHeight } =
-      await connection.getLatestBlockhash("confirmed");
+    const message = new TransactionMessage({
+      payerKey: ownerPubkey,
+      recentBlockhash: blockhash,
+      instructions: [computeBudgetIx, computePriceIx, onboardIx],
+    }).compileToLegacyMessage();
 
-    const tx = new Transaction();
-    tx.recentBlockhash = blockhash;
-    tx.feePayer = ownerPubkey;
-    tx.lastValidBlockHeight = lastValidBlockHeight;
-    tx.add(ix);
-
-    const serialized = tx
-      .serialize({ requireAllSignatures: false })
-      .toString("base64");
+    const vtx = new VersionedTransaction(message);
 
     res.json({
-      gateway: gw.public_key,
+      gateway: gatewayPubkey,
       already_onboarded: false,
-      transaction: serialized,
+      transactions: [{ transaction: Buffer.from(vtx.serialize()).toString("base64") }],
     });
   } catch (e) {
     console.error("onboard error:", e);
@@ -529,27 +816,16 @@ app.post("/gateways/:mac/onboard", async (req, res) => {
 // ---------------------------------------------------------------------------
 // Health check
 // ---------------------------------------------------------------------------
-app.get("/health", async (req, res) => {
-  // Derive key PDAs and optionally verify on-chain
-  let dataOnlyConfig, dataOnlyConfigExists;
-  try {
-    dataOnlyConfig = deriveDataOnlyConfigKey().toBase58();
-    if (req.query.verify) {
-      const info = await connection.getAccountInfo(new PublicKey(dataOnlyConfig));
-      dataOnlyConfigExists = !!info;
-    }
-  } catch (e) {
-    dataOnlyConfig = `error: ${e.message}`;
-  }
-
+app.get("/health", (req, res) => {
   res.json({
     status: "ok",
     solana_rpc: SOLANA_RPC,
-    entity_manager: ENTITY_MANAGER_PROGRAM_ID.toBase58(),
-    helium_dao: HELIUM_DAO.toBase58(),
-    iot_sub_dao: IOT_SUB_DAO.toBase58(),
-    data_only_config: dataOnlyConfig,
-    ...(req.query.verify && { data_only_config_exists: dataOnlyConfigExists }),
+    ecc_verifier: ECC_VERIFIER_URL,
+    entity_manager: ENTITY_MANAGER.toBase58(),
+    helium_dao: DAO_KEY.toBase58(),
+    iot_sub_dao: IOT_SUB_DAO_KEY.toBase58(),
+    data_only_config: DATA_ONLY_CONFIG_KEY.toBase58(),
+    keys_dir: KEYS_DIR,
   });
 });
 
@@ -559,10 +835,9 @@ app.get("/health", async (req, res) => {
 app.listen(PORT, "127.0.0.1", () => {
   console.log(`Helium onboard service listening on 127.0.0.1:${PORT}`);
   console.log(`Solana RPC: ${SOLANA_RPC}`);
-  console.log(`Multi-gateway API: ${MULTI_GW_API}`);
-  console.log(`Helium DAO: ${HELIUM_DAO.toBase58()}`);
-  console.log(`IOT Sub-DAO: ${IOT_SUB_DAO.toBase58()}`);
-  console.log(
-    `Data-only config PDA: ${deriveDataOnlyConfigKey().toBase58()}`
-  );
+  console.log(`DAS RPC: ${DAS_RPC}`);
+  console.log(`ECC Verifier: ${ECC_VERIFIER_URL}`);
+  console.log(`Gateway keys: ${KEYS_DIR}`);
+  console.log(`Helium DAO: ${DAO_KEY.toBase58()}`);
+  console.log(`Data-only config: ${DATA_ONLY_CONFIG_KEY.toBase58()}`);
 });

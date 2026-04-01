@@ -1,0 +1,19 @@
+# Environment & secrets
+.env
+*.key
+
+# Node
+node_modules/
+package-lock.json
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# macOS
+.DS_Store
+
+# Temp files
+*.log
+check_location.*

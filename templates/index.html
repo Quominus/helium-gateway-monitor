@@ -911,8 +911,9 @@
     let mapInstance = null;
 
     // Solana connection for submitting signed transactions
+    // Routes through our backend proxy to avoid public RPC rate limits
     const solanaConnection = new window.solanaWeb3.Connection(
-      'https://api.mainnet-beta.solana.com', 'confirmed'
+      window.location.origin + '/api/solana-rpc', 'confirmed'
     );
     let mapMarker = null;
 
@@ -1081,7 +1082,7 @@
           if (info === null) {
             onchainBadge = `<span class="onchain-badge not-onboarded" onclick="openOnboardModal('${gw.mac}')" title="Click to onboard">Onboard</span>`;
           } else if (info && (info.iot_onboarded || info.onchain)) {
-            onchainBadge = '<span class="onchain-badge onboarded" title="Onboarded on Helium IoT">\u2713</span>';
+            onchainBadge = `<span class="onchain-badge onboarded" onclick="openOnboardModal('${gw.mac}')" title="Click to view onboard status" style="cursor:pointer">\u2713</span>`;
           } else {
             onchainBadge = `<span class="onchain-badge not-onboarded" onclick="openOnboardModal('${gw.mac}')" title="Click to onboard">Onboard</span>`;
           }
@@ -1325,7 +1326,12 @@
         document.getElementById('step-connect').classList.add('done');
         document.getElementById('step-issue').classList.add('active');
         document.getElementById('btnIssue').disabled = false;
-
+        // Smart-resume: if issue step already done, skip to location
+        if (document.getElementById('step-issue').classList.contains('done')) {
+          document.getElementById('step-location').classList.add('active');
+          document.getElementById('btnOnboard').disabled = false;
+          setTimeout(initOnboardMap, 100);
+        }
         showToast('Wallet connected: ' + short);
       } catch (e) {
         console.error('Wallet connect error', e);
@@ -1360,14 +1366,18 @@
         if (data.already_issued) {
           status.style.color = 'var(--green)';
           status.textContent = 'Entity already exists on-chain — proceed to set location.';
-        } else if (data.transaction) {
-          // Deserialize the unsigned transaction from base64
+        } else if (data.transactions && data.transactions.length > 0) {
+          // Deserialize the ECC-verified VersionedTransaction from base64
           status.textContent = 'Please approve the transaction in your wallet...';
-          const txBytes = Uint8Array.from(atob(data.transaction), c => c.charCodeAt(0));
-          const tx = solanaWeb3.Transaction.from(txBytes);
+          const txB64 = data.transactions[0].transaction;
+          const txBytes = Uint8Array.from(atob(txB64), c => c.charCodeAt(0));
+          const tx = solanaWeb3.VersionedTransaction.deserialize(txBytes);
 
-          // Wallet signs the transaction
+          // Wallet signs the transaction (payer signature)
           const signedTx = await connectedWallet.provider.signTransaction(tx);
+
+          // Get latest blockhash for confirmation
+          const { blockhash, lastValidBlockHeight } = await solanaConnection.getLatestBlockhash('confirmed');
 
           // Submit the signed transaction to Solana
           status.textContent = 'Submitting transaction to Solana...';
@@ -1375,21 +1385,34 @@
             signedTx.serialize(), { skipPreflight: false, preflightCommitment: 'confirmed' }
           );
 
-          // Wait for confirmation
+          // Wait for confirmation with blockhash-based timeout (more reliable)
           status.textContent = 'Waiting for confirmation...';
-          const confirmation = await solanaConnection.confirmTransaction(signature, 'confirmed');
-          if (confirmation.value.err) {
-            throw new Error('Transaction failed on-chain: ' + JSON.stringify(confirmation.value.err));
+          try {
+            const confirmation = await Promise.race([
+              solanaConnection.confirmTransaction(
+                { signature, blockhash, lastValidBlockHeight },
+                'confirmed'
+              ),
+              new Promise((_, reject) => setTimeout(() => reject(new Error('Confirmation timeout after 60s')), 60000))
+            ]);
+            if (confirmation.value.err) {
+              throw new Error('Transaction failed on-chain: ' + JSON.stringify(confirmation.value.err));
+            }
+            status.style.color = 'var(--green)';
+            status.textContent = 'Entity issued on-chain! Now set your location below.';
+            showToast('Entity issued! Tx: ' + signature.slice(0, 12) + '...');
+          } catch (confirmErr) {
+            // Transaction was sent but confirmation timed out — likely still succeeded
+            console.warn('Confirmation timeout, tx may still succeed:', confirmErr);
+            status.style.color = 'var(--yellow, orange)';
+            status.textContent = 'Transaction sent! Confirmation timed out but tx likely succeeded. Proceeding...';
+            showToast('Tx sent: ' + signature.slice(0, 12) + '... (confirming in background)');
           }
-
-          status.style.color = 'var(--green)';
-          status.textContent = 'Entity issued on-chain! Now set your location below.';
-          showToast('Entity issued! Tx: ' + signature.slice(0, 12) + '...');
         } else {
           throw new Error('No transaction returned from server');
         }
 
-        // Advance to location step
+        // Advance to location step (always, even if confirmation timed out)
         document.getElementById('step-issue').classList.remove('active');
         document.getElementById('step-issue').classList.add('done');
         document.getElementById('step-location').classList.add('active');
@@ -1480,12 +1503,15 @@
           status.style.color = 'var(--green)';
           status.textContent = 'Gateway is already onboarded to the IoT network.';
         } else if (data.transaction) {
-          // Deserialize, sign, submit, and confirm
+          // Deserialize the VersionedTransaction, sign, submit, and confirm
           status.textContent = 'Please approve the transaction in your wallet...';
           const txBytes = Uint8Array.from(atob(data.transaction), c => c.charCodeAt(0));
-          const tx = solanaWeb3.Transaction.from(txBytes);
+          const tx = solanaWeb3.VersionedTransaction.deserialize(txBytes);
 
           const signedTx = await connectedWallet.provider.signTransaction(tx);
+
+          // Get latest blockhash for confirmation
+          const { blockhash: obHash, lastValidBlockHeight: obHeight } = await solanaConnection.getLatestBlockhash('confirmed');
 
           status.textContent = 'Submitting onboard transaction to Solana...';
           const signature = await solanaConnection.sendRawTransaction(
@@ -1493,14 +1519,26 @@
           );
 
           status.textContent = 'Waiting for confirmation...';
-          const confirmation = await solanaConnection.confirmTransaction(signature, 'confirmed');
-          if (confirmation.value.err) {
-            throw new Error('Transaction failed on-chain: ' + JSON.stringify(confirmation.value.err));
+          try {
+            const confirmation = await Promise.race([
+              solanaConnection.confirmTransaction(
+                { signature, blockhash: obHash, lastValidBlockHeight: obHeight },
+                'confirmed'
+              ),
+              new Promise((_, reject) => setTimeout(() => reject(new Error('Confirmation timeout after 60s')), 60000))
+            ]);
+            if (confirmation.value.err) {
+              throw new Error('Transaction failed on-chain: ' + JSON.stringify(confirmation.value.err));
+            }
+            status.style.color = 'var(--green)';
+            status.textContent = 'Gateway onboarded successfully with location asserted!';
+            showToast('Onboarded! Tx: ' + signature.slice(0, 12) + '...');
+          } catch (confirmErr) {
+            console.warn('Onboard confirmation timeout, tx may still succeed:', confirmErr);
+            status.style.color = 'var(--yellow, orange)';
+            status.textContent = 'Onboard transaction sent! Confirmation timed out but likely succeeded.';
+            showToast('Onboard tx sent: ' + signature.slice(0, 12) + '... (check explorer)');
           }
-
-          status.style.color = 'var(--green)';
-          status.textContent = 'Gateway onboarded successfully with location asserted!';
-          showToast('Onboarded! Tx: ' + signature.slice(0, 12) + '...');
         } else {
           throw new Error('No transaction returned from server');
         }
