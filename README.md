@@ -1,6 +1,6 @@
 # Helium Gateway Monitor
 
-A self-hosted web dashboard for monitoring and onboarding Helium IoT hotspots running on [helium-multi-gateway](https://github.com/quominus/helium-multi-gateway).
+A self-hosted web dashboard for monitoring and onboarding Helium IoT hotspots running on [helium-multi-gateway](https://github.com/helium/multi-gateway).
 
 Features:
 
@@ -15,11 +15,7 @@ Features:
 
 Before you start, you'll need:
 
-1. **An Ubuntu EC2 instance** (or similar VPS) with `helium-multi-gateway` already installed and running. This is a separate package that aggregates multiple LoRaWAN gateways into the Helium network. You install it from a `.deb` file:
-   ```bash
-   sudo dpkg -i helium-multi-gateway_0.1.0-1_amd64.deb
-   ```
-   Ask Will for the `.deb` if you don't have it. Once installed, it runs as a systemd service on port 4468 and creates its config at `/etc/helium-multi-gateway/settings.toml`.
+1. **An Ubuntu EC2 instance** (or similar VPS) with `helium-multi-gateway` already installed and running. This is a separate package that aggregates multiple LoRaWAN gateways into the Helium network. See the official repo for installation instructions: https://github.com/helium/multi-gateway. Once installed, it runs as a systemd service on port 4468 and creates its config at `/etc/helium-multi-gateway/settings.toml`.
 
 2. **A domain name** pointed at your server's public IP (e.g. via an A record in your DNS provider). This is needed for HTTPS/SSL via Let's Encrypt.
 
