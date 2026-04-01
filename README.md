@@ -28,7 +28,7 @@ Before you start, you'll need:
 
 5. **Node.js 18+** (for the onboard service). The setup script installs this automatically.
 
-6. **(Optional) SMTP credentials** if you want email alerts when gateways go offline. A Gmail app password works, or you can use AWS SES.
+6. **(Optional) AWS account with SES** if you want email alerts when gateways go offline. The app sends notifications via AWS Simple Email Service (SES). You'll need to verify a sender email/domain in SES and make sure AWS credentials are available on the server (e.g. an IAM role on EC2, or `~/.aws/credentials`). See https://docs.aws.amazon.com/ses/latest/dg/setting-up.html
 
 ---
 
