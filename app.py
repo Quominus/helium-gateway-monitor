@@ -703,7 +703,7 @@ async def api_add_subscriber(request: Request):
     gw = conn.execute("SELECT * FROM gateways WHERE mac = ?", (mac,)).fetchone()
     gateway_name = ""
     if gw:
-        gateway_name = gw["public_key"] or mac
+        gateway_name = gw["friendly_name"] or gw["public_key"] or mac
 
     conn.close()
 

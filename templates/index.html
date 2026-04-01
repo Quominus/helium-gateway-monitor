@@ -1114,7 +1114,7 @@
     function openSubscribeModal(mac) {
       modalMac = mac;
       const gw = gateways.find(g => g.mac === mac);
-      const name = gw ? (gw.public_key || mac) : mac;
+      const name = gw ? (gw.friendly_name || getHotspotName(gw.public_key) || mac) : mac;
       document.getElementById('modalGatewayName').textContent = `Gateway: ${name}`;
       document.getElementById('modalEmail').value = '';
       document.getElementById('modalOnline').checked = true;
