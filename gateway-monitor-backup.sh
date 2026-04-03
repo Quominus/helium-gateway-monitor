@@ -21,9 +21,21 @@ BACKUP_DIR="/tmp/gateway-monitor-backup-${TIMESTAMP}"
 ARCHIVE_NAME="gateway-monitor-backup-${TIMESTAMP}.tar.gz"
 ARCHIVE_PATH="/tmp/${ARCHIVE_NAME}"
 
+# ── Colours ────────────────────────────────────────────────
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
+
+info()  { echo -e "${GREEN}[INFO]${NC}  $*"; }
+warn()  { echo -e "${YELLOW}[WARN]${NC}  $*"; }
+error() { echo -e "${RED}[ERROR]${NC} $*"; }
+
+# What to back up
+APP_DIR="/opt/helium-gateway-monitor"
+
 # S3-compatible storage (Storj)
-# Credentials are loaded from /opt/helium-gateway-monitor/.env.backup
-# Create this file with:
+# Credentials loaded from .env.backup — create with:
 #   AWS_ACCESS_KEY_ID=your-key
 #   AWS_SECRET_ACCESS_KEY=your-secret
 S3_ENDPOINT="https://gateway.storjshare.io"
@@ -42,21 +54,8 @@ else
   exit 1
 fi
 
-# What to back up
-APP_DIR="/opt/helium-gateway-monitor"
-
 # UptimeRobot heartbeat (update this URL once you create the monitor)
 HEARTBEAT_URL="${HEARTBEAT_URL:-}"
-
-# ── Colours ────────────────────────────────────────────────
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m'
-
-info()  { echo -e "${GREEN}[INFO]${NC}  $*"; }
-warn()  { echo -e "${YELLOW}[WARN]${NC}  $*"; }
-error() { echo -e "${RED}[ERROR]${NC} $*"; }
 
 # ── Pre-flight checks ─────────────────────────────────────
 check_prerequisites() {
