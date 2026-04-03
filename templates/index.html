@@ -1360,11 +1360,12 @@
         if (data.already_issued) {
           status.style.color = 'var(--green)';
           status.textContent = 'Entity already exists on-chain — proceed to set location.';
-        } else if (data.transaction) {
+        } else if (data.transactions && data.transactions.length > 0) {
           // Deserialize the unsigned transaction from base64
           status.textContent = 'Please approve the transaction in your wallet...';
-          const txBytes = Uint8Array.from(atob(data.transaction), c => c.charCodeAt(0));
-          const tx = solanaWeb3.Transaction.from(txBytes);
+          const txBase64 = data.transactions[0].transaction;
+          const txBytes = Uint8Array.from(atob(txBase64), c => c.charCodeAt(0));
+          const tx = solanaWeb3.VersionedTransaction.deserialize(txBytes);
 
           // Wallet signs the transaction
           const signedTx = await connectedWallet.provider.signTransaction(tx);
@@ -1483,7 +1484,7 @@
           // Deserialize, sign, submit, and confirm
           status.textContent = 'Please approve the transaction in your wallet...';
           const txBytes = Uint8Array.from(atob(data.transaction), c => c.charCodeAt(0));
-          const tx = solanaWeb3.Transaction.from(txBytes);
+          const tx = solanaWeb3.VersionedTransaction.deserialize(txBytes);
 
           const signedTx = await connectedWallet.provider.signTransaction(tx);
 
