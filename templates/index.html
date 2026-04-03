@@ -1095,8 +1095,8 @@
               ${escHtml(gw.mac)}<button class="copy-btn" onclick="copyText('${gw.mac}')" title="Copy MAC"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button>
             </td>
             <td>
-              <span class="public-key-name" title="${escAttr(publicKey)}">${publicKey ? escHtml(getHotspotName(publicKey)) : ''}</span>
-              ${publicKey ? `<button class="copy-btn" onclick="copyText('${escAttr(publicKey)}')" title="Copy public key"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button>` : ''}
+              <span class="public-key-name" title="${escAttr(publicKey)}">${publicKey ? escHtml(gw.friendly_name || getHotspotName(publicKey)) : ''}</span>
+              ${publicKey ? `<button class="copy-btn" onclick="copyText(this.parentElement.querySelector('.public-key-name').textContent)" title="Copy gateway name"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button>` : ''}
             </td>
             <td class="connected-time">${connDuration}</td>
             <td class="last-uplink ${isStale ? 'stale' : ''}">${lastUplink}</td>
