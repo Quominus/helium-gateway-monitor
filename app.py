@@ -772,6 +772,23 @@ async def api_onboard_gateway(mac: str, request: Request):
         raise HTTPException(status_code=502, detail="Failed to reach onboard service")
 
 
+@app.post("/api/gateways/{mac}/update-location")
+async def api_update_location(mac: str, request: Request):
+    """Proxy update-location (reassert) transaction to Onboard service."""
+    body = await request.json()
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                f"{ONBOARD_API}/gateways/{mac}/update-location",
+                json=body,
+                timeout=30,
+            )
+            return JSONResponse(resp.json(), status_code=resp.status_code)
+    except Exception as e:
+        logger.warning(f"Onboard service update-location proxy error for {mac}: {e}")
+        raise HTTPException(status_code=502, detail="Failed to reach onboard service")
+
+
 # ---------------------------------------------------------------------------
 # Run
 # ---------------------------------------------------------------------------

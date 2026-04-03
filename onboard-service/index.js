@@ -483,6 +483,95 @@ function buildOnboardInstruction(
 }
 
 // ---------------------------------------------------------------------------
+// Build updateIotInfoV0 instruction (reassert location for already-onboarded)
+// ---------------------------------------------------------------------------
+function buildUpdateIotInfoInstruction(
+  owner,
+  gatewayPubkeyB58,
+  merkleTree,
+  asset,
+  proof,
+  canopyDepth,
+  opts = {}
+) {
+  const disc = anchorDiscriminator("update_iot_info_v0");
+
+  const dataHash = Buffer.from(bs58.decode(asset.compression.data_hash));
+  const creatorHash = Buffer.from(bs58.decode(asset.compression.creator_hash));
+  const root = Buffer.from(bs58.decode(proof.root));
+  const indexBuf = Buffer.alloc(4);
+  indexBuf.writeUInt32LE(asset.compression.leaf_id);
+
+  // update_iot_info_v0 args: location, elevation, gain FIRST, then proof data
+  const data = Buffer.concat([
+    disc,
+    encodeOptionU64(opts.location),
+    encodeOptionI32(opts.elevation),
+    encodeOptionI32(opts.gain),
+    dataHash,
+    creatorHash,
+    root,
+    indexBuf,
+  ]);
+
+  const accounts = [
+    { pubkey: owner, isSigner: true, isWritable: true }, // payer
+    { pubkey: owner, isSigner: true, isWritable: true }, // dc_fee_payer
+    {
+      pubkey: iotInfoKey(gatewayPubkeyB58),
+      isSigner: false,
+      isWritable: true,
+    }, // iot_info
+    { pubkey: owner, isSigner: true, isWritable: false }, // hotspot_owner
+    { pubkey: merkleTree, isSigner: false, isWritable: false }, // merkle_tree
+    {
+      pubkey: treeAuthorityKey(merkleTree),
+      isSigner: false,
+      isWritable: false,
+    }, // tree_authority
+    {
+      pubkey: ataAddress(owner, DC_MINT),
+      isSigner: false,
+      isWritable: true,
+    }, // dc_burner
+    {
+      pubkey: REWARDABLE_ENTITY_CONFIG_KEY,
+      isSigner: false,
+      isWritable: false,
+    }, // rewardable_entity_config
+    { pubkey: DAO_KEY, isSigner: false, isWritable: false }, // dao
+    { pubkey: IOT_SUB_DAO_KEY, isSigner: false, isWritable: false }, // sub_dao
+    { pubkey: DC_MINT, isSigner: false, isWritable: true }, // dc_mint
+    { pubkey: DC_KEY, isSigner: false, isWritable: false }, // dc
+    { pubkey: BUBBLEGUM, isSigner: false, isWritable: false }, // bubblegum_program
+    { pubkey: COMPRESSION, isSigner: false, isWritable: false }, // compression_program
+    { pubkey: DATA_CREDITS, isSigner: false, isWritable: false }, // data_credits_program
+    { pubkey: SPL_TOKEN, isSigner: false, isWritable: false }, // token_program
+    { pubkey: SPL_ATA, isSigner: false, isWritable: false }, // associated_token_program
+    { pubkey: SystemProgram.programId, isSigner: false, isWritable: false }, // system_program
+  ];
+
+  // Proof accounts, trimmed by canopy depth
+  const proofPath = proof.proof.slice(
+    0,
+    proof.proof.length - canopyDepth
+  );
+  for (const proofKey of proofPath) {
+    accounts.push({
+      pubkey: new PublicKey(proofKey),
+      isSigner: false,
+      isWritable: false,
+    });
+  }
+
+  return new TransactionInstruction({
+    keys: accounts,
+    programId: ENTITY_MANAGER,
+    data,
+  });
+}
+
+// ---------------------------------------------------------------------------
 // DAS API helpers
 // ---------------------------------------------------------------------------
 async function fetchAsset(rpcUrl, assetId) {
@@ -710,6 +799,7 @@ app.post("/gateways/:mac/onboard", async (req, res) => {
   try {
     const { mac } = req.params;
     const { owner, location, elevation, gain } = req.body;
+    console.log(`Onboard request for ${mac}, owner: ${owner}, location: ${location}, elevation: ${elevation}, gain: ${gain}`);
 
     if (!owner) {
       return res.status(400).json({ error: "Missing owner address" });
@@ -752,6 +842,7 @@ app.post("/gateways/:mac/onboard", async (req, res) => {
     // Get asset ID from key_to_asset account
     // Layout: discriminator(8) + dao(32) + asset(32) + ...
     const assetId = new PublicKey(ktaAccount.data.slice(40, 72)).toBase58();
+    console.log(`  KTA found for ${mac}, asset ID: ${assetId}`);
     const MERKLE_OFFSET = 8 + 32 + 1 + 32;
     const merkleTree = new PublicKey(
       configAccount.data.slice(MERKLE_OFFSET, MERKLE_OFFSET + 32)
@@ -765,6 +856,7 @@ app.post("/gateways/:mac/onboard", async (req, res) => {
       connection.getAccountInfo(merkleTree),
     ]);
 
+    console.log(`  DAS data fetched for ${mac}, asset owner: ${asset?.ownership?.owner}, proof root: ${proof?.root}`);
     if (!treeAccount) {
       return res
         .status(500)
@@ -801,13 +893,130 @@ app.post("/gateways/:mac/onboard", async (req, res) => {
 
     const vtx = new VersionedTransaction(message);
 
+    const txBase64 = Buffer.from(vtx.serialize()).toString("base64");
+    console.log(`  Onboard transaction ready for ${mac} (${txBase64.length} chars)`);
     res.json({
       gateway: gatewayPubkey,
       already_onboarded: false,
-      transaction: Buffer.from(vtx.serialize()).toString("base64"),
+      transaction: txBase64,
     });
   } catch (e) {
     console.error("onboard error:", e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /gateways/:mac/update-location — reassert location for already-onboarded
+// ---------------------------------------------------------------------------
+app.post("/gateways/:mac/update-location", async (req, res) => {
+  try {
+    const { mac } = req.params;
+    const { owner, location, elevation, gain } = req.body;
+    console.log(`Update-location request for ${mac}, owner: ${owner}, location: ${location}, elevation: ${elevation}, gain: ${gain}`);
+
+    if (!owner) {
+      return res.status(400).json({ error: "Missing owner address" });
+    }
+    if (!location) {
+      return res.status(400).json({ error: "Missing location (H3 hex)" });
+    }
+
+    let ownerPubkey;
+    try {
+      ownerPubkey = new PublicKey(owner);
+    } catch {
+      return res.status(400).json({ error: "Invalid owner address" });
+    }
+
+    const gw = await getGatewayByMac(mac);
+    if (!gw.public_key) {
+      return res.status(400).json({ error: "Gateway has no public key" });
+    }
+
+    const gatewayPubkey = gw.public_key;
+
+    // Must already be onboarded (iot_info must exist)
+    const ktaKey = keyToAssetKey(gatewayPubkey);
+    const [ktaAccount, iotInfoAccount, configAccount] = await Promise.all([
+      connection.getAccountInfo(ktaKey),
+      connection.getAccountInfo(iotInfoKey(gatewayPubkey)),
+      connection.getAccountInfo(DATA_ONLY_CONFIG_KEY),
+    ]);
+
+    if (!ktaAccount) {
+      return res.status(400).json({
+        error: "Gateway not yet issued on-chain. Run issue step first.",
+      });
+    }
+    if (!iotInfoAccount) {
+      return res.status(400).json({
+        error: "Gateway not yet onboarded. Complete onboarding first.",
+      });
+    }
+
+    // Get asset ID from key_to_asset account
+    const assetId = new PublicKey(ktaAccount.data.slice(40, 72)).toBase58();
+    const MERKLE_OFFSET = 8 + 32 + 1 + 32;
+    const merkleTree = new PublicKey(
+      configAccount.data.slice(MERKLE_OFFSET, MERKLE_OFFSET + 32)
+    );
+    console.log(`  KTA found for ${mac}, asset ID: ${assetId}`);
+
+    // Fetch DAS data, blockhash, and tree account in parallel
+    const [asset, proof, { blockhash }, treeAccount] = await Promise.all([
+      fetchAsset(DAS_RPC, assetId),
+      fetchAssetProof(DAS_RPC, assetId),
+      connection.getLatestBlockhash(),
+      connection.getAccountInfo(merkleTree),
+    ]);
+
+    console.log(`  DAS data fetched for ${mac}, asset owner: ${asset?.ownership?.owner}, proof root: ${proof?.root}`);
+
+    if (!treeAccount) {
+      return res
+        .status(500)
+        .json({ error: "Merkle tree account not found" });
+    }
+    const canopyDepth = getCanopyDepth(treeAccount.data);
+
+    const updateIx = buildUpdateIotInfoInstruction(
+      ownerPubkey,
+      gatewayPubkey,
+      merkleTree,
+      asset,
+      proof,
+      canopyDepth,
+      {
+        location: location || null,
+        elevation: elevation ?? null,
+        gain: gain ?? null,
+      }
+    );
+
+    const computeBudgetIx = ComputeBudgetProgram.setComputeUnitLimit({
+      units: 300_000,
+    });
+    const computePriceIx = ComputeBudgetProgram.setComputeUnitPrice({
+      microLamports: 1,
+    });
+
+    const message = new TransactionMessage({
+      payerKey: ownerPubkey,
+      recentBlockhash: blockhash,
+      instructions: [computeBudgetIx, computePriceIx, updateIx],
+    }).compileToLegacyMessage();
+
+    const vtx = new VersionedTransaction(message);
+
+    const txBase64 = Buffer.from(vtx.serialize()).toString("base64");
+    console.log(`  Update-location transaction ready for ${mac} (${txBase64.length} chars)`);
+    res.json({
+      gateway: gatewayPubkey,
+      transaction: txBase64,
+    });
+  } catch (e) {
+    console.error("update-location error:", e);
     res.status(500).json({ error: e.message });
   }
 });

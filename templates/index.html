@@ -1227,16 +1227,21 @@
             const data = await res.json();
             const r = data.results ? data.results[onboardPubkey] : data[onboardPubkey];
             if (r && r.iot_onboarded) {
-              // Fully onboarded — show completion
-              document.querySelectorAll('.onboard-step').forEach(s => {
-                s.classList.remove('active');
-                s.classList.add('done');
-              });
-              document.getElementById('onboardStatus').textContent = 'This gateway is already onboarded on the Helium IoT network.';
-              document.getElementById('onboardStatus').style.color = 'var(--green)';
-              document.getElementById('btnConnectWallet').disabled = true;
-              document.getElementById('btnConnectWallet').textContent = 'Already onboarded';
-              document.getElementById('btnConnectWallet').style.background = 'var(--green)';
+              // Fully onboarded — allow reasserting location
+              document.getElementById('step-connect').classList.remove('active');
+              document.getElementById('step-connect').classList.add('done');
+              document.getElementById('step-issue').classList.add('done');
+              document.getElementById('step-location').classList.add('active');
+              document.getElementById('step-onboard').classList.remove('active');
+              document.getElementById('onboardStatus').textContent = '';
+              // Switch the onboard button to "Update Location" mode
+              document.getElementById('btnOnboard').textContent = 'Update Location';
+              document.getElementById('btnOnboard').setAttribute('onclick', 'updateLocation()');
+              document.getElementById('btnOnboard').disabled = true;
+              document.getElementById('step-onboard').querySelector('h4').textContent = 'Reassert Location';
+              document.getElementById('step-onboard').querySelector('p').textContent = 'Submit an update transaction to change this gateway\'s asserted location on the Helium IoT network.';
+              document.getElementById('btnConnectWallet').textContent = 'Connect to update location';
+              showToast('Gateway already onboarded — connect wallet and set new location to reassert.');
             } else if (r && r.onchain) {
               // Entity issued but not IoT onboarded — skip to location step
               document.getElementById('step-connect').classList.remove('active');
@@ -1280,10 +1285,17 @@
       document.getElementById('walletAddress').textContent = '';
       document.getElementById('issueStatus').textContent = '';
       document.getElementById('onboardStatus').textContent = '';
+      document.getElementById('onboardStatus').style.color = 'var(--primary-500)';
       document.getElementById('btnConnectWallet').disabled = false;
       document.getElementById('btnConnectWallet').textContent = 'Connect Wallet';
+      document.getElementById('btnConnectWallet').style.background = '';
       document.getElementById('btnIssue').disabled = true;
       document.getElementById('btnOnboard').disabled = true;
+      document.getElementById('btnOnboard').textContent = 'Onboard Gateway';
+      document.getElementById('btnOnboard').setAttribute('onclick', 'completeOnboard()');
+      // Reset step 4 heading/description back to defaults
+      document.getElementById('step-onboard').querySelector('h4').textContent = 'Complete Onboarding';
+      document.getElementById('step-onboard').querySelector('p').textContent = 'Submit the onboard transaction to register and assert location on the Helium IoT network.';
 
       document.querySelectorAll('.onboard-step').forEach(s => {
         s.classList.remove('active', 'done');
@@ -1323,8 +1335,15 @@
 
         document.getElementById('step-connect').classList.remove('active');
         document.getElementById('step-connect').classList.add('done');
-        document.getElementById('step-issue').classList.add('active');
-        document.getElementById('btnIssue').disabled = false;
+
+        // If issue step is already done (reassert mode), skip to location/onboard
+        if (document.getElementById('step-issue').classList.contains('done')) {
+          document.getElementById('step-location').classList.add('active');
+          document.getElementById('btnOnboard').disabled = false;
+        } else {
+          document.getElementById('step-issue').classList.add('active');
+          document.getElementById('btnIssue').disabled = false;
+        }
 
         showToast('Wallet connected: ' + short);
       } catch (e) {
@@ -1518,6 +1537,92 @@
         console.error('Onboard error', e);
         status.style.color = 'var(--red)';
         status.textContent = e.message || 'Failed to onboard';
+        btn.disabled = false;
+      }
+    }
+
+    // ---- Update location (reassert) for already-onboarded gateways ----
+    async function updateLocation() {
+      if (!connectedWallet) return;
+      const btn = document.getElementById('btnOnboard');
+      const status = document.getElementById('onboardStatus');
+      btn.disabled = true;
+      status.textContent = 'Building update-location transaction...';
+      status.style.color = 'var(--primary-500)';
+
+      const lat = parseFloat(document.getElementById('locLat').value);
+      const lng = parseFloat(document.getElementById('locLng').value);
+      const elevation = parseInt(document.getElementById('locElevation').value) || 0;
+      const gain = parseFloat(document.getElementById('locGain').value) || 1.2;
+
+      if (isNaN(lat) || isNaN(lng)) {
+        status.style.color = 'var(--red)';
+        status.textContent = 'Please click the map to set a location first.';
+        btn.disabled = false;
+        return;
+      }
+
+      const body = { owner: connectedWallet.address, elevation };
+      if (typeof window.latLngToCell === 'function') {
+        body.location = window.latLngToCell(lat, lng, 12);
+        body.gain = Math.round(gain * 10);
+      } else {
+        status.style.color = 'var(--red)';
+        status.textContent = 'H3 library not loaded — cannot encode location.';
+        btn.disabled = false;
+        return;
+      }
+
+      try {
+        const res = await fetch(`/api/gateways/${onboardMac}/update-location`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+
+        if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.error || err.detail || 'Update location request failed');
+        }
+
+        const data = await res.json();
+
+        if (data.transaction) {
+          status.textContent = 'Please approve the transaction in your wallet...';
+          const txBytes = Uint8Array.from(atob(data.transaction), c => c.charCodeAt(0));
+          const tx = solanaWeb3.VersionedTransaction.deserialize(txBytes);
+
+          const signedTx = await connectedWallet.provider.signTransaction(tx);
+
+          status.textContent = 'Submitting update-location transaction to Solana...';
+          const signature = await solanaConnection.sendRawTransaction(
+            signedTx.serialize(), { skipPreflight: false, preflightCommitment: 'confirmed' }
+          );
+
+          status.textContent = 'Waiting for confirmation...';
+          const confirmation = await solanaConnection.confirmTransaction(signature, 'confirmed');
+          if (confirmation.value.err) {
+            throw new Error('Transaction failed on-chain: ' + JSON.stringify(confirmation.value.err));
+          }
+
+          status.style.color = 'var(--green)';
+          status.textContent = 'Location updated successfully!';
+          showToast('Location reasserted! Tx: ' + signature.slice(0, 12) + '...');
+        } else {
+          throw new Error('No transaction returned from server');
+        }
+
+        document.querySelectorAll('.onboard-step').forEach(s => {
+          s.classList.remove('active');
+          s.classList.add('done');
+        });
+
+        setTimeout(fetchOnchainStatus, 5000);
+
+      } catch (e) {
+        console.error('Update location error', e);
+        status.style.color = 'var(--red)';
+        status.textContent = e.message || 'Failed to update location';
         btn.disabled = false;
       }
     }
