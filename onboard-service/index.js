@@ -24,7 +24,7 @@ import {
 import { createHash } from "crypto";
 import { readFileSync } from "fs";
 import { sign } from "@noble/ed25519";
-import { sha512 } from "@noble/hashes/sha512";
+import { sha512 } from "@noble/hashes/sha2";
 import { sha256 as sha256Hash } from "js-sha256";
 import bs58 from "bs58";
 
