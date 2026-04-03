@@ -39,7 +39,7 @@ APP_DIR="/opt/helium-gateway-monitor"
 #   AWS_ACCESS_KEY_ID=your-key
 #   AWS_SECRET_ACCESS_KEY=your-secret
 S3_ENDPOINT="https://gateway.storjshare.io"
-S3_BUCKET="${S3_BUCKET:-chirpstack-backups}"
+S3_BUCKET="${S3_BUCKET:-multi-gateway-backups}"
 S3_PREFIX="${S3_PREFIX:-gateway-monitor}"
 
 CREDENTIALS_FILE="${APP_DIR}/.env.backup"
@@ -97,7 +97,34 @@ backup_app() {
   info "Application backup complete (${app_size})"
 }
 
-# ── 2. Back up systemd / PM2 service config ───────────────
+# ── 2. Back up gateway keys & multi-gateway config ────────
+backup_gateway_keys() {
+  info "Backing up gateway keys and multi-gateway config..."
+
+  mkdir -p "${BACKUP_DIR}/multi-gateway"
+
+  # Gateway keys (CRITICAL — cannot be regenerated)
+  local KEYS_DIR="/var/lib/helium-multi-gateway/keys"
+  if [ -d "${KEYS_DIR}" ]; then
+    cp -r "${KEYS_DIR}" "${BACKUP_DIR}/multi-gateway/keys"
+    local key_count
+    key_count=$(ls "${KEYS_DIR}" | wc -l)
+    info "Gateway keys backed up (${key_count} keys)"
+  else
+    warn "Gateway keys directory not found at ${KEYS_DIR}"
+  fi
+
+  # Multi-gateway config
+  local CONFIG="/etc/helium-multi-gateway/settings.toml"
+  if [ -f "${CONFIG}" ]; then
+    cp "${CONFIG}" "${BACKUP_DIR}/multi-gateway/settings.toml"
+    info "Multi-gateway config backed up"
+  else
+    warn "Multi-gateway config not found at ${CONFIG}"
+  fi
+}
+
+# ── 3. Back up systemd / PM2 service config ───────────────
 backup_service_config() {
   info "Backing up service configurations..."
 
@@ -186,6 +213,8 @@ print_summary() {
   echo ""
   echo "  Contents:"
   echo "    - Full /opt/helium-gateway-monitor (excl .git)"
+  echo "    - Gateway keys (/var/lib/helium-multi-gateway/keys)"
+  echo "    - Multi-gateway config (settings.toml)"
   echo "    - Systemd / PM2 service configs"
   echo "    - Crontab entries"
   echo "═══════════════════════════════════════════════════"
@@ -201,6 +230,7 @@ main() {
   check_prerequisites
   create_backup_dir
   backup_app
+  backup_gateway_keys
   backup_service_config
   create_archive
   upload_to_s3
