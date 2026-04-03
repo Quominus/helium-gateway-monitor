@@ -453,7 +453,8 @@
       white-space: nowrap;
       cursor: default;
     }
-    .onchain-badge.onboarded { background: var(--green-bg); color: #16a34a; }
+    .onchain-badge.onboarded { background: var(--green-bg); color: #16a34a; cursor: pointer; }
+    .onchain-badge.onboarded:hover { background: rgba(22,163,74,0.18); }
     .onchain-badge.not-onboarded { background: var(--red-bg); color: #dc2626; cursor: pointer; }
     .onchain-badge.not-onboarded:hover { background: rgba(239,68,68,0.18); }
     .onchain-badge.checking { background: var(--primary-100); color: var(--primary-400); }
@@ -1081,7 +1082,7 @@
           if (info === null) {
             onchainBadge = `<span class="onchain-badge not-onboarded" onclick="openOnboardModal('${gw.mac}')" title="Click to onboard">Onboard</span>`;
           } else if (info && (info.iot_onboarded || info.onchain)) {
-            onchainBadge = '<span class="onchain-badge onboarded" title="Onboarded on Helium IoT">\u2713</span>';
+            onchainBadge = `<span class="onchain-badge onboarded" onclick="openOnboardModal('${gw.mac}')" title="Click to update location">\u2713</span>`;
           } else {
             onchainBadge = `<span class="onchain-badge not-onboarded" onclick="openOnboardModal('${gw.mac}')" title="Click to onboard">Onboard</span>`;
           }
