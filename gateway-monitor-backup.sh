@@ -66,9 +66,8 @@ check_prerequisites() {
     exit 1
   fi
 
-  if ! command -v aws &>/dev/null; then
-    error "AWS CLI is not installed — needed for Storj upload"
-    error "Install with: sudo apt install awscli"
+  if ! command -v curl &>/dev/null; then
+    error "curl is not installed — needed for Storj upload"
     exit 1
   fi
 
@@ -170,20 +169,29 @@ create_archive() {
 
 # ── 4. Upload to Storj (S3-compatible) ───────────────────
 upload_to_s3() {
-  local S3_FLAGS="--endpoint-url ${S3_ENDPOINT}"
-
   info "Uploading to s3://${S3_BUCKET}/${S3_PREFIX}/${ARCHIVE_NAME}..."
-  # Use expected-size to avoid multipart upload issues with Storj
-  local file_size
-  file_size=$(stat -c%s "${ARCHIVE_PATH}")
-  aws s3 cp ${S3_FLAGS} "${ARCHIVE_PATH}" "s3://${S3_BUCKET}/${S3_PREFIX}/${ARCHIVE_NAME}" \
-    --expected-size "${file_size}"
-  info "Upload complete"
 
-  # Prune old backups (keep last 30)
+  # Use curl with AWS SigV4 — aws cli v1 has Content-Length bugs with Storj
+  local upload_url="${S3_ENDPOINT}/${S3_BUCKET}/${S3_PREFIX}/${ARCHIVE_NAME}"
+  local http_code
+  http_code=$(curl -s -o /dev/null -w "%{http_code}" -X PUT "${upload_url}" \
+    -H "Content-Type: application/gzip" \
+    --aws-sigv4 "aws:amz:us-1:s3" \
+    --user "${AWS_ACCESS_KEY_ID}:${AWS_SECRET_ACCESS_KEY}" \
+    --upload-file "${ARCHIVE_PATH}")
+
+  if [ "${http_code}" -ge 200 ] && [ "${http_code}" -lt 300 ]; then
+    info "Upload complete (HTTP ${http_code})"
+  else
+    error "Upload failed (HTTP ${http_code})"
+    exit 1
+  fi
+
+  # Prune old backups (keep last 30) — still use aws cli for listing/deleting
   info "Checking for old backups to prune (keeping last 30)..."
+  local S3_FLAGS="--endpoint-url ${S3_ENDPOINT}"
   local count
-  count=$(aws s3 ls ${S3_FLAGS} "s3://${S3_BUCKET}/${S3_PREFIX}/" | wc -l)
+  count=$(aws s3 ls ${S3_FLAGS} "s3://${S3_BUCKET}/${S3_PREFIX}/" 2>/dev/null | wc -l)
   if [ "$count" -gt 30 ]; then
     local to_delete
     to_delete=$((count - 30))
@@ -192,7 +200,9 @@ upload_to_s3() {
       | head -n "${to_delete}" \
       | awk '{print $4}' \
       | while read -r file; do
-          aws s3 rm ${S3_FLAGS} "s3://${S3_BUCKET}/${S3_PREFIX}/${file}"
+          curl -s -X DELETE "${S3_ENDPOINT}/${S3_BUCKET}/${S3_PREFIX}/${file}" \
+            --aws-sigv4 "aws:amz:us-1:s3" \
+            --user "${AWS_ACCESS_KEY_ID}:${AWS_SECRET_ACCESS_KEY}"
           info "Pruned old backup: ${file}"
         done
   fi
