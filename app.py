@@ -484,43 +484,49 @@ async def poll_gateways():
 async def check_notifications():
     """
     Runs every NOTIFICATION_CHECK_SECONDS (default 1 hour).
-    Looks at status_log for changes since the last check, then sends
+    Looks at status_log for changes that haven't been notified yet, then sends
     at most ONE email per gateway per subscriber per 24 hours.
     """
     conn = get_db()
     now_utc = datetime.now(timezone.utc)
     cutoff = (now_utc - timedelta(hours=NOTIFICATION_COOLDOWN_HOURS)).isoformat()
 
-    # Get the most recent status change for each gateway in the last check window
-    # We look at status_log entries from the last NOTIFICATION_CHECK_SECONDS + buffer
-    check_window = (now_utc - timedelta(
-        seconds=NOTIFICATION_CHECK_SECONDS + 60)).isoformat()
+    # Get the most recent status per gateway, comparing current DB state
+    # to what we've already notified about (avoids missing events between checks)
+    gateways_list = conn.execute("SELECT mac, connected FROM gateways").fetchall()
 
-    recent_changes = conn.execute(
-        """SELECT mac, status, timestamp FROM status_log
-           WHERE timestamp > ?
-           ORDER BY timestamp DESC""",
-        (check_window,),
-    ).fetchall()
-
-    # Deduplicate: keep only the latest status per gateway
     latest_per_gw = {}
-    for row in recent_changes:
-        if row["mac"] not in latest_per_gw:
-            latest_per_gw[row["mac"]] = row["status"]
+    for gw_row in gateways_list:
+        mac = gw_row["mac"]
+        current_status = "online" if gw_row["connected"] else "offline"
+
+        # Check if we already notified about this exact status recently
+        already_notified = conn.execute(
+            """SELECT 1 FROM notification_log
+               WHERE mac = ? AND status = ? AND sent_at > ?""",
+            (mac, current_status, cutoff),
+        ).fetchone()
+        if not already_notified:
+            # Also verify there's a status_log entry for this state
+            has_log = conn.execute(
+                "SELECT 1 FROM status_log WHERE mac = ? AND status = ? ORDER BY timestamp DESC LIMIT 1",
+                (mac, current_status),
+            ).fetchone()
+            if has_log:
+                latest_per_gw[mac] = current_status
 
     if not latest_per_gw:
         conn.close()
         return
 
-    logger.info(f"Notification check: {len(latest_per_gw)} gateway(s) with status changes")
+    logger.info(f"Notification check: {len(latest_per_gw)} gateway(s) with unnotified status changes")
 
     for mac, new_status in latest_per_gw.items():
         gw = conn.execute("SELECT * FROM gateways WHERE mac = ?", (mac,)).fetchone()
         if not gw:
             continue
 
-        gateway_name = gw["public_key"] or ""
+        gateway_name = gw["friendly_name"] or gw["public_key"] or ""
         notify_field = "notify_online" if new_status == "online" else "notify_offline"
 
         # Get per-gateway subscribers
