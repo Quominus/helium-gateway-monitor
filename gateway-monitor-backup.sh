@@ -173,7 +173,11 @@ upload_to_s3() {
   local S3_FLAGS="--endpoint-url ${S3_ENDPOINT}"
 
   info "Uploading to s3://${S3_BUCKET}/${S3_PREFIX}/${ARCHIVE_NAME}..."
-  aws s3 cp ${S3_FLAGS} "${ARCHIVE_PATH}" "s3://${S3_BUCKET}/${S3_PREFIX}/${ARCHIVE_NAME}"
+  # Use expected-size to avoid multipart upload issues with Storj
+  local file_size
+  file_size=$(stat -c%s "${ARCHIVE_PATH}")
+  aws s3 cp ${S3_FLAGS} "${ARCHIVE_PATH}" "s3://${S3_BUCKET}/${S3_PREFIX}/${ARCHIVE_NAME}" \
+    --expected-size "${file_size}"
   info "Upload complete"
 
   # Prune old backups (keep last 30)
