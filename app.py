@@ -41,6 +41,7 @@ BASE_URL = os.getenv("BASE_URL", "https://gateway.sattrack.co.uk")
 NOTIFICATION_CHECK_SECONDS = int(os.getenv("NOTIFICATION_CHECK_SECONDS", "3600"))  # 1 hour
 NOTIFICATION_COOLDOWN_HOURS = int(os.getenv("NOTIFICATION_COOLDOWN_HOURS", "24"))  # 1 email/day/gw
 ONBOARD_API = os.getenv("ONBOARD_API", "http://127.0.0.1:3001")
+SOLANA_RPC_URL = os.getenv("SOLANA_RPC_URL", "https://api.mainnet-beta.solana.com")
 
 logger = logging.getLogger("gateway-monitor")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -607,7 +608,7 @@ templates = Jinja2Templates(directory=str(templates_dir))
 # ---- Pages ----------------------------------------------------------------
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request, "region": REGION})
+    return templates.TemplateResponse("index.html", {"request": request, "region": REGION, "solana_rpc_url": SOLANA_RPC_URL})
 
 
 @app.get("/unsubscribe/{token}", response_class=HTMLResponse)

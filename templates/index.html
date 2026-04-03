@@ -912,7 +912,7 @@
 
     // Solana connection for submitting signed transactions
     const solanaConnection = new window.solanaWeb3.Connection(
-      'https://api.mainnet-beta.solana.com', 'confirmed'
+      '{{ solana_rpc_url }}', 'confirmed'
     );
     let mapMarker = null;
 
