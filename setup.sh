@@ -62,6 +62,7 @@ sudo mkdir -p "$APP_DIR" "$DATA_DIR"
 # Copy Python app
 sudo cp "$SCRIPT_DIR/app.py" "$APP_DIR/"
 sudo cp "$SCRIPT_DIR/requirements.txt" "$APP_DIR/"
+sudo cp "$SCRIPT_DIR/logo-transparent.png" "$APP_DIR/"
 sudo cp -r "$SCRIPT_DIR/templates" "$APP_DIR/"
 
 # Copy onboard service
