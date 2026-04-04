@@ -14,6 +14,9 @@ import secrets
 import sqlite3
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
+from email.mime.image import MIMEImage
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 from pathlib import Path
 
 import boto3
@@ -157,8 +160,18 @@ def sattrack_email_wrapper(content_html: str, footer_extra: str = "") -> str:
           <!-- Header -->
           <tr>
             <td align="center" style="background-color:#ffffff;padding:32px 40px 20px;">
-              <h1 style="margin:0;color:#1E293B;font-size:22px;font-weight:700;">SatTrack</h1>
-              <p style="margin:4px 0 0;color:#64748B;font-size:13px;">Gateway Monitor</p>
+              <table role="presentation" cellpadding="0" cellspacing="0" align="center" style="margin:0 auto;">
+                <tr>
+                  <td align="center">
+                    <img src="cid:sattrack-logo" alt="SatTrack" width="220" height="66" style="width:220px;height:auto;max-width:220px;" />
+                  </td>
+                </tr>
+                <tr>
+                  <td align="center" style="padding-top:6px;">
+                    <p style="margin:0;color:#64748B;font-size:13px;">Gateway Monitor</p>
+                  </td>
+                </tr>
+              </table>
             </td>
           </tr>
           <!-- Accent stripe -->
@@ -191,17 +204,42 @@ def sattrack_email_wrapper(content_html: str, footer_extra: str = "") -> str:
 # ---------------------------------------------------------------------------
 # AWS SES email sender
 # ---------------------------------------------------------------------------
+_logo_data: bytes | None = None
+
+def _get_logo_data() -> bytes:
+    """Read and cache the SatTrack logo PNG for CID embedding."""
+    global _logo_data
+    if _logo_data is None:
+        logo_path = Path(__file__).parent / "logo-transparent.png"
+        _logo_data = logo_path.read_bytes()
+    return _logo_data
+
+
 def send_email(to_email: str, subject: str, body_html: str):
-    """Send an email via AWS SES. Fails silently with a log warning."""
+    """Send an email via AWS SES with CID-embedded logo. Fails silently with a log warning."""
     try:
+        # Build multipart/related MIME message so the logo renders inline
+        msg = MIMEMultipart("related")
+        msg["Subject"] = subject
+        msg["From"] = SES_FROM_EMAIL
+        msg["To"] = to_email
+
+        # HTML body
+        msg_html = MIMEText(body_html, "html", "utf-8")
+        msg.attach(msg_html)
+
+        # Inline logo attachment
+        logo_data = _get_logo_data()
+        logo_img = MIMEImage(logo_data, _subtype="png")
+        logo_img.add_header("Content-ID", "<sattrack-logo>")
+        logo_img.add_header("Content-Disposition", "inline", filename="logo.png")
+        msg.attach(logo_img)
+
         ses = boto3.client("ses", region_name=SES_REGION)
-        ses.send_email(
+        ses.send_raw_email(
             Source=SES_FROM_EMAIL,
-            Destination={"ToAddresses": [to_email]},
-            Message={
-                "Subject": {"Data": subject, "Charset": "UTF-8"},
-                "Body": {"Html": {"Data": body_html, "Charset": "UTF-8"}},
-            },
+            Destinations=[to_email],
+            RawMessage={"Data": msg.as_string()},
         )
         logger.info(f"Email sent to {to_email}: {subject}")
     except ClientError as e:
@@ -527,7 +565,7 @@ async def check_notifications():
         if not gw:
             continue
 
-        gateway_name = gw["friendly_name"] or gw["public_key"] or ""
+        gateway_name = gw["friendly_name"] or mac
         notify_field = "notify_online" if new_status == "online" else "notify_offline"
 
         # Get per-gateway subscribers
@@ -625,7 +663,7 @@ async def unsubscribe_page(token: str, request: Request):
         gw = conn.execute("SELECT * FROM gateways WHERE mac = ?", (sub["mac"],)).fetchone()
         gateway_name = ""
         if gw:
-            gateway_name = gw["public_key"] or sub["mac"]
+            gateway_name = gw["friendly_name"] or sub["mac"]
         else:
             gateway_name = sub["mac"]
 
@@ -710,7 +748,7 @@ async def api_add_subscriber(request: Request):
     gw = conn.execute("SELECT * FROM gateways WHERE mac = ?", (mac,)).fetchone()
     gateway_name = ""
     if gw:
-        gateway_name = gw["friendly_name"] or gw["public_key"] or mac
+        gateway_name = gw["friendly_name"] or mac
 
     conn.close()
 
