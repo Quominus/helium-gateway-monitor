@@ -530,8 +530,9 @@ async def check_notifications():
     now_utc = datetime.now(timezone.utc)
     cutoff = (now_utc - timedelta(hours=NOTIFICATION_COOLDOWN_HOURS)).isoformat()
 
-    # Get the most recent status per gateway, comparing current DB state
-    # to what we've already notified about (avoids missing events between checks)
+    # Only notify when a gateway has a NEW status change since the last
+    # notification we sent for it. This prevents "cooldown expired" re-sends
+    # where nothing actually changed.
     gateways_list = conn.execute("SELECT mac, connected FROM gateways").fetchall()
 
     latest_per_gw = {}
@@ -539,20 +540,32 @@ async def check_notifications():
         mac = gw_row["mac"]
         current_status = "online" if gw_row["connected"] else "offline"
 
-        # Check if we already notified about this exact status recently
-        already_notified = conn.execute(
-            """SELECT 1 FROM notification_log
-               WHERE mac = ? AND status = ? AND sent_at > ?""",
-            (mac, current_status, cutoff),
+        # Find the most recent status_log entry for this gateway matching
+        # its current state — this is the transition we might notify about.
+        latest_change = conn.execute(
+            """SELECT timestamp FROM status_log
+               WHERE mac = ? AND status = ?
+               ORDER BY timestamp DESC LIMIT 1""",
+            (mac, current_status),
         ).fetchone()
-        if not already_notified:
-            # Also verify there's a status_log entry for this state
-            has_log = conn.execute(
-                "SELECT 1 FROM status_log WHERE mac = ? AND status = ? ORDER BY timestamp DESC LIMIT 1",
-                (mac, current_status),
-            ).fetchone()
-            if has_log:
-                latest_per_gw[mac] = current_status
+        if not latest_change:
+            continue
+
+        # Find the most recent notification we've ever sent for this gateway
+        # (any status). If the latest status change is newer than that, it's
+        # a real new transition worth alerting on.
+        last_notified = conn.execute(
+            """SELECT sent_at FROM notification_log
+               WHERE mac = ?
+               ORDER BY sent_at DESC LIMIT 1""",
+            (mac,),
+        ).fetchone()
+
+        if last_notified and latest_change["timestamp"] <= last_notified["sent_at"]:
+            # Nothing new since we last notified — skip.
+            continue
+
+        latest_per_gw[mac] = current_status
 
     if not latest_per_gw:
         conn.close()
@@ -608,8 +621,13 @@ async def check_notifications():
                     (ADMIN_EMAIL, mac, new_status),
                 )
 
-    # Housekeeping: purge notification_log entries older than 48h
-    purge_cutoff = (now_utc - timedelta(hours=48)).isoformat()
+    # Housekeeping: purge notification_log entries older than 30 days.
+    # We need to keep these around long enough that the "has this change
+    # already been notified?" check in the detection loop remains correct
+    # even for gateways that stay in the same state for weeks. 48h was too
+    # aggressive and caused nightly duplicate alerts once the cooldown
+    # window expired.
+    purge_cutoff = (now_utc - timedelta(days=30)).isoformat()
     conn.execute("DELETE FROM notification_log WHERE sent_at < ?", (purge_cutoff,))
 
     conn.commit()
