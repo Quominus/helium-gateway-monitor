@@ -482,6 +482,27 @@
       .empty-row td { display: block; text-align: center !important; padding: 40px 16px; }
       .empty-row td::before { content: none; }
 
+      /* Compact cards: collapse detail until tapped, so a long fleet stays scannable.
+         Collapsed shows Status + Gateway + Last Uplink; tap to reveal the rest. */
+      tbody tr { position: relative; cursor: pointer; padding-right: 34px; }
+      tbody tr.empty-row { cursor: default; padding-right: 14px; }
+      tbody tr::after {
+        content: '\25BE';                 /* ▾ */
+        position: absolute; top: 12px; right: 14px;
+        color: var(--primary-400); font-size: 13px; line-height: 1;
+        transition: transform 0.2s ease;
+      }
+      tbody tr.expanded::after { transform: rotate(180deg); }
+      tbody tr.empty-row::after { content: none; }
+      tbody tr:not(.expanded) td[data-label="Region"],
+      tbody tr:not(.expanded) td[data-label="MAC"],
+      tbody tr:not(.expanded) td[data-label="Connected"],
+      tbody tr:not(.expanded) td[data-label="Uplinks"],
+      tbody tr:not(.expanded) td[data-label="Downlinks"],
+      tbody tr:not(.expanded) td[data-label="On-Chain"],
+      tbody tr:not(.expanded) td[data-label="Alerts"] { display: none; }
+      tbody tr:not(.expanded) td[data-label="Last Uplink"] { border-bottom: none; }
+
       .modal { padding: 22px; }
       .onboard-modal-header { padding: 20px 18px 0; }
       .onboard-tabs { padding: 0 18px; }
@@ -965,6 +986,7 @@
     let gateways = [];
     let filteredGateways = [];
     let currentPage = 1;
+    const expandedMacs = new Set();  // MACs whose mobile card is expanded (preserved across the 15s refresh)
     let modalMac = '';
 
     // ---- Onboarding state ----
@@ -1107,6 +1129,16 @@
     }
 
     // ---- Render table ----
+    // On mobile the table renders as cards; tapping a card toggles its detail.
+    // Expanded MACs are tracked so the 15s auto-refresh doesn't collapse them.
+    function toggleCard(ev, mac) {
+      if (ev.target.closest('button, a, .onchain-badge')) return;     // let action controls work
+      if (!window.matchMedia('(max-width: 640px)').matches) return;   // desktop table: no-op
+      const tr = ev.currentTarget;
+      if (expandedMacs.has(mac)) { expandedMacs.delete(mac); tr.classList.remove('expanded'); }
+      else { expandedMacs.add(mac); tr.classList.add('expanded'); }
+    }
+
     function renderTable() {
       const tbody = document.getElementById('gatewayTableBody');
       const start = (currentPage - 1) * PAGE_SIZE;
@@ -1152,7 +1184,7 @@
         }
 
         return `
-          <tr>
+          <tr class="${expandedMacs.has(gw.mac) ? 'expanded' : ''}" data-mac="${escAttr(gw.mac)}" onclick="toggleCard(event, '${gw.mac}')">
             <td data-label="Status"><span class="status-dot ${status}"></span></td>
             <td data-label="Region"><span class="region-badge">${escHtml(REGION)}</span></td>
             <td class="mac-cell" data-label="MAC">
