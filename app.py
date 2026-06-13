@@ -41,8 +41,33 @@ APP_HOST = os.getenv("APP_HOST", "0.0.0.0")
 APP_PORT = int(os.getenv("APP_PORT", "8080"))
 ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "hello@sattrack.co.uk")
 BASE_URL = os.getenv("BASE_URL", "https://gateway.sattrack.co.uk")
-NOTIFICATION_CHECK_SECONDS = int(os.getenv("NOTIFICATION_CHECK_SECONDS", "3600"))  # 1 hour
-NOTIFICATION_COOLDOWN_HOURS = int(os.getenv("NOTIFICATION_COOLDOWN_HOURS", "24"))  # 1 email/day/gw
+NOTIFICATION_CHECK_SECONDS = int(os.getenv("NOTIFICATION_CHECK_SECONDS", "300"))  # 5 min
+# A gateway must be CONTINUOUSLY offline for at least this long before we send an
+# offline alert. Short flaps — UDP keepalive timeouts (the multi-gateway drops a
+# gateway after disconnect_timeout_secs=30 when its source port churns), service
+# restarts, brief network drops — recover inside this window and never email.
+# Must be comfortably larger than NOTIFICATION_CHECK_SECONDS for the debounce to
+# work (otherwise a check may never land while the gateway is still inside the
+# grace window).
+OFFLINE_GRACE_MINUTES = int(os.getenv("OFFLINE_GRACE_MINUTES", "30"))
+# Multi-gateway UDP dispatcher health monitoring + auto-restart watchdog.
+# The /gateways API exposes dispatcher.last_event_seconds_ago — seconds since the
+# UDP dispatcher last processed ANY packet from ANY gateway. In normal operation
+# this stays near zero because gateways send PULL_DATA keepalives every ~10s. If
+# it climbs past the threshold while gateways are still marked connected, the
+# dispatcher has wedged (the 2026-04-05 failure mode: connected=true but no
+# packets processed for days). The watchdog then restarts helium-multi-gateway.
+DISPATCHER_STALE_THRESHOLD_SECONDS = int(os.getenv("DISPATCHER_STALE_THRESHOLD_SECONDS", "1800"))  # 30 min
+DISPATCHER_ALERT_COOLDOWN_MINUTES = int(os.getenv("DISPATCHER_ALERT_COOLDOWN_MINUTES", "60"))
+# Auto-restart: when the dispatcher looks wedged, run `systemctl restart
+# helium-multi-gateway.service` (needs a sudoers rule for the service user — see
+# setup.sh). Requires the stuck condition to hold across N consecutive polls and
+# at least one gateway still connected (so we don't pointlessly restart when all
+# gateways are genuinely offline). Rate-limited by the cooldown.
+DISPATCHER_RESTART_ENABLED = os.getenv("DISPATCHER_RESTART_ENABLED", "1") == "1"
+DISPATCHER_RESTART_COOLDOWN_MINUTES = int(os.getenv("DISPATCHER_RESTART_COOLDOWN_MINUTES", "30"))
+DISPATCHER_RESTART_CONFIRM_POLLS = int(os.getenv("DISPATCHER_RESTART_CONFIRM_POLLS", "3"))
+MULTI_GW_SERVICE = os.getenv("MULTI_GW_SERVICE", "helium-multi-gateway.service")
 ONBOARD_API = os.getenv("ONBOARD_API", "http://127.0.0.1:3001")
 SOLANA_RPC_URL = os.getenv("SOLANA_RPC_URL", "https://api.mainnet-beta.solana.com")
 
@@ -432,6 +457,142 @@ def build_new_gateway_email(gateway_name: str, mac: str) -> tuple[str, str]:
     return subject, html
 
 
+def build_dispatcher_alert_email(last_event_seconds_ago: int,
+                                 uptime_seconds: int,
+                                 events_processed: int,
+                                 auto_restarted: bool = False,
+                                 restart_ok: bool = True) -> tuple[str, str]:
+    """Return (subject, html_body) for a stuck UDP dispatcher alert.
+
+    auto_restarted=False -> plain "stuck, restart it yourself" alert.
+    auto_restarted=True, restart_ok=True  -> "we restarted it for you".
+    auto_restarted=True, restart_ok=False -> "we tried to restart it and failed".
+    """
+    now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    stale_minutes = last_event_seconds_ago // 60
+    stale_label = f"{stale_minutes} min" if stale_minutes >= 1 else f"{last_event_seconds_ago}s"
+    restart_cmd = ('<code style="background-color:#E2E8F0;padding:2px 8px;border-radius:4px;font-size:13px;">'
+                   'sudo systemctl restart helium-multi-gateway.service</code>')
+
+    if auto_restarted and restart_ok:
+        subject = f"[SatTrack] Multi-gateway dispatcher wedged — auto-restarted ({stale_label})"
+        badge_color, badge = "#16A34A", "AUTO-RESTARTED"
+        intro = (f"The helium-multi-gateway UDP dispatcher stopped processing packets for more than "
+                 f"{DISPATCHER_STALE_THRESHOLD_SECONDS // 60} minutes (the 2026-04-05 failure pattern). "
+                 f"SatTrack detected it and automatically restarted the service to recover.")
+        action = ("No action needed — the service was restarted automatically. If this keeps recurring, "
+                  "investigate the gateway backhaul (UDP source-port churn) or report the stuck-dispatcher "
+                  "bug upstream.")
+    elif auto_restarted and not restart_ok:
+        subject = f"[SatTrack] Multi-gateway dispatcher wedged — AUTO-RESTART FAILED ({stale_label})"
+        badge_color, badge = "#B91C1C", "RESTART FAILED"
+        intro = ("The helium-multi-gateway UDP dispatcher looks wedged and SatTrack tried to restart the "
+                 "service automatically, but the restart command failed. Manual intervention is required.")
+        action = (f"SSH to the multi-gateway server and run {restart_cmd} — and check the passwordless "
+                  "sudoers rule for the gateway-monitor user (/etc/sudoers.d/gateway-monitor-restart).")
+    else:
+        subject = f"[SatTrack] Multi-gateway dispatcher stuck ({stale_label})"
+        badge_color, badge = "#E22936", "DISPATCHER STUCK"
+        intro = (f"The helium-multi-gateway service is still running but its UDP dispatcher has not processed "
+                 f"a packet for more than {DISPATCHER_STALE_THRESHOLD_SECONDS} seconds. This is the same "
+                 f"failure pattern seen on 2026-04-05 and is normally recovered by restarting the service.")
+        action = f"Suggested action: SSH to the multi-gateway server and run {restart_cmd}"
+
+    content = f"""
+    <div style="text-align:center;margin-bottom:28px;">
+      <span style="display:inline-block;background:{badge_color};color:#ffffff;font-size:14px;font-weight:700;padding:10px 28px;border-radius:24px;letter-spacing:0.5px;">
+        {badge}
+      </span>
+    </div>
+    <h2 style="color:#1E293B;margin:0 0 8px;font-size:20px;font-weight:700;">Multi-gateway UDP dispatcher stopped processing packets</h2>
+    <p style="color:#334155;font-size:15px;line-height:1.7;margin:0 0 16px;">
+      {intro}
+    </p>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#F8FAFC;border-radius:8px;border:1px solid #E2E8F0;margin:16px 0 24px;">
+      <tr>
+        <td style="padding:20px 24px;">
+          <table role="presentation" cellpadding="0" cellspacing="0" width="100%">
+            <tr>
+              <td width="180" style="color:#64748B;font-size:14px;padding:0 0 8px;vertical-align:top;">Last dispatcher event</td>
+              <td style="padding:0 0 8px;vertical-align:top;">
+                <span style="color:#B91C1C;font-size:14px;font-weight:700;">{last_event_seconds_ago}s ago</span>
+              </td>
+            </tr>
+            <tr>
+              <td width="180" style="color:#64748B;font-size:14px;padding:0 0 8px;vertical-align:top;">Dispatcher uptime</td>
+              <td style="padding:0 0 8px;vertical-align:top;">
+                <span style="color:#0F172A;font-size:14px;">{uptime_seconds}s</span>
+              </td>
+            </tr>
+            <tr>
+              <td width="180" style="color:#64748B;font-size:14px;padding:0 0 8px;vertical-align:top;">Events processed</td>
+              <td style="padding:0 0 8px;vertical-align:top;">
+                <span style="color:#0F172A;font-size:14px;">{events_processed}</span>
+              </td>
+            </tr>
+            <tr>
+              <td width="180" style="color:#64748B;font-size:14px;padding:0;vertical-align:top;">Detected at</td>
+              <td style="padding:0;vertical-align:top;">
+                <span style="color:#334155;font-size:14px;">{now_str}</span>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+    <p style="color:#334155;font-size:14px;line-height:1.7;margin:0 0 16px;">
+      {action}
+    </p>
+    <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 auto;">
+      <tr>
+        <td style="background-color:#E22936;border-radius:8px;">
+          <a href="{BASE_URL}" target="_blank" style="display:inline-block;padding:14px 36px;color:#ffffff;text-decoration:none;font-size:16px;font-weight:600;letter-spacing:0.3px;">
+            View Dashboard
+          </a>
+        </td>
+      </tr>
+    </table>
+    """
+
+    footer = """
+    <p style="color:#94A3B8;font-size:12px;margin:0 0 12px;">
+      You're receiving this as the SatTrack admin. Dispatcher alerts are rate-limited.
+    </p>
+    """
+
+    html = sattrack_email_wrapper(content, footer)
+    return subject, html
+
+
+# ---------------------------------------------------------------------------
+# Multi-gateway service restart (stuck-dispatcher watchdog)
+# ---------------------------------------------------------------------------
+# Consecutive polls during which the dispatcher has looked wedged. We only act
+# once this reaches DISPATCHER_RESTART_CONFIRM_POLLS, so a single anomalous API
+# reading can't trigger a restart.
+_dispatcher_stale_polls = 0
+
+
+async def restart_multi_gateway() -> tuple[bool, str]:
+    """Run `sudo -n systemctl restart <service>`. Returns (ok, message).
+
+    Needs a passwordless sudoers rule for the service user (see setup.sh):
+        gateway-monitor ALL=(root) NOPASSWD: /usr/bin/systemctl restart helium-multi-gateway.service
+    """
+    cmd = ["sudo", "-n", "/usr/bin/systemctl", "restart", MULTI_GW_SERVICE]
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
+        )
+        out, _ = await asyncio.wait_for(proc.communicate(), timeout=60)
+        msg = (out or b"").decode(errors="replace").strip()
+        if proc.returncode == 0:
+            return True, msg or "restart ok"
+        return False, f"exit {proc.returncode}: {msg or 'no output'}"
+    except Exception as e:
+        return False, str(e)
+
+
 # ---------------------------------------------------------------------------
 # Gateway poller
 # ---------------------------------------------------------------------------
@@ -516,117 +677,186 @@ async def poll_gateways():
                 conn.execute("INSERT INTO status_log (mac, status) VALUES (?, ?)", (mac, new_status))
                 logger.info(f"Gateway {mac} status changed to {new_status}")
 
+    # ---- Dispatcher health check + auto-restart watchdog -----------------
+    # /gateways exposes a "dispatcher" block. last_event_seconds_ago is seconds
+    # since the dispatcher last processed ANY packet; it stays near zero while
+    # gateways send their ~10s keepalives. If it climbs past the threshold while
+    # gateways are STILL marked connected, the dispatcher has wedged (the
+    # 2026-04-05 pattern) — restart helium-multi-gateway. If connected==0 the
+    # gateways are simply gone (nothing to recover) and we leave it alone.
+    global _dispatcher_stale_polls
+    dispatcher = data.get("dispatcher") or {}
+    last_event_seconds_ago = dispatcher.get("last_event_seconds_ago")
+    connected_count = data.get("connected")
+    if connected_count is None:
+        connected_count = sum(1 for g in data.get("gateways", []) if g.get("connected"))
+
+    wedged = (
+        last_event_seconds_ago is not None
+        and last_event_seconds_ago > DISPATCHER_STALE_THRESHOLD_SECONDS
+        and connected_count > 0
+    )
+
+    if not wedged:
+        _dispatcher_stale_polls = 0
+    else:
+        _dispatcher_stale_polls += 1
+        logger.warning(
+            f"Multi-gateway dispatcher appears stuck: last_event_seconds_ago="
+            f"{last_event_seconds_ago}, connected={connected_count}, "
+            f"confirm={_dispatcher_stale_polls}/{DISPATCHER_RESTART_CONFIRM_POLLS}"
+        )
+        now_dt = datetime.now(timezone.utc)
+        confirmed = _dispatcher_stale_polls >= DISPATCHER_RESTART_CONFIRM_POLLS
+
+        def _dispatcher_email(auto_restarted=False, restart_ok=True):
+            return build_dispatcher_alert_email(
+                int(last_event_seconds_ago),
+                int(dispatcher.get("uptime_seconds") or 0),
+                int(dispatcher.get("events_processed") or 0),
+                auto_restarted=auto_restarted,
+                restart_ok=restart_ok,
+            )
+
+        if DISPATCHER_RESTART_ENABLED and confirmed:
+            # Rate-limit restarts so a persistent failure can't become a loop.
+            cutoff = (now_dt - timedelta(minutes=DISPATCHER_RESTART_COOLDOWN_MINUTES)).isoformat()
+            recently_restarted = conn.execute(
+                "SELECT 1 FROM notification_log WHERE mac = ? AND status = ? AND sent_at > ?",
+                ("__dispatcher__", "restart", cutoff),
+            ).fetchone()
+            if not recently_restarted:
+                logger.warning(f"Auto-restarting {MULTI_GW_SERVICE} (dispatcher wedged)")
+                ok, detail = await restart_multi_gateway()
+                logger.info(
+                    f"{MULTI_GW_SERVICE} restart {'succeeded' if ok else 'FAILED'}: {detail}"
+                )
+                conn.execute(
+                    "INSERT INTO notification_log (email, mac, status) VALUES (?, ?, ?)",
+                    (ADMIN_EMAIL, "__dispatcher__", "restart"),
+                )
+                subject, html = _dispatcher_email(auto_restarted=True, restart_ok=ok)
+                send_email(ADMIN_EMAIL, subject, html)
+                _dispatcher_stale_polls = 0  # let the service come back before re-evaluating
+        elif not DISPATCHER_RESTART_ENABLED and confirmed:
+            # Auto-restart disabled — fall back to a rate-limited "please restart" alert.
+            cutoff = (now_dt - timedelta(minutes=DISPATCHER_ALERT_COOLDOWN_MINUTES)).isoformat()
+            already_alerted = conn.execute(
+                "SELECT 1 FROM notification_log WHERE mac = ? AND status = ? AND sent_at > ?",
+                ("__dispatcher__", "stuck", cutoff),
+            ).fetchone()
+            if not already_alerted:
+                subject, html = _dispatcher_email()
+                send_email(ADMIN_EMAIL, subject, html)
+                conn.execute(
+                    "INSERT INTO notification_log (email, mac, status) VALUES (?, ?, ?)",
+                    (ADMIN_EMAIL, "__dispatcher__", "stuck"),
+                )
+                logger.info("Dispatcher stuck alert sent to admin")
+
     conn.commit()
     conn.close()
 
 
 async def check_notifications():
     """
-    Runs every NOTIFICATION_CHECK_SECONDS (default 1 hour).
-    Looks at status_log for changes that haven't been notified yet, then sends
-    at most ONE email per gateway per subscriber per 24 hours.
+    Runs every NOTIFICATION_CHECK_SECONDS (default 5 min).
+
+    Debounced offline/online alerting:
+      * An OFFLINE alert is only sent once a gateway has been CONTINUOUSLY
+        offline for at least OFFLINE_GRACE_MINUTES. Brief flaps (keepalive
+        timeouts, service restarts, source-port churn, transient network
+        drops) recover before the grace window and never email.
+      * An ONLINE ("recovered") alert is only sent if we previously warned the
+        recipient that this gateway went offline — so a short blip we never
+        alerted on doesn't produce a spurious "back online" email either.
+
+    Per-recipient notification_log history drives the state machine, so it works
+    correctly even for offline-only subscribers and across long outages. No
+    arbitrary time-based cooldown is needed: each outage produces at most one
+    offline email and at most one recovery email per recipient.
     """
     conn = get_db()
     now_utc = datetime.now(timezone.utc)
-    cutoff = (now_utc - timedelta(hours=NOTIFICATION_COOLDOWN_HOURS)).isoformat()
+    grace_seconds = OFFLINE_GRACE_MINUTES * 60
 
-    # Only notify when a gateway has a NEW status change since the last
-    # notification we sent for it. This prevents "cooldown expired" re-sends
-    # where nothing actually changed.
-    gateways_list = conn.execute("SELECT mac, connected FROM gateways").fetchall()
+    gateways_list = conn.execute(
+        "SELECT mac, connected, friendly_name FROM gateways"
+    ).fetchall()
 
-    latest_per_gw = {}
+    # Decide, per gateway, whether there is an event worth delivering.
+    # pending[mac] = (new_status, friendly_name, offline_since|None)
+    pending = {}
     for gw_row in gateways_list:
         mac = gw_row["mac"]
-        current_status = "online" if gw_row["connected"] else "offline"
+        friendly_name = gw_row["friendly_name"] or mac
 
-        # Find the most recent status_log entry for this gateway matching
-        # its current state — this is the transition we might notify about.
-        latest_change = conn.execute(
-            """SELECT timestamp FROM status_log
-               WHERE mac = ? AND status = ?
-               ORDER BY timestamp DESC LIMIT 1""",
-            (mac, current_status),
-        ).fetchone()
-        if not latest_change:
-            continue
+        if gw_row["connected"]:
+            # Online now — a recovery is only meaningful if it was actually down.
+            pending[mac] = ("online", friendly_name, None)
+        else:
+            # Offline now — only an event once it's been down past the grace
+            # window. Use the timestamp of the most recent offline transition as
+            # the start of the current outage.
+            offline_row = conn.execute(
+                """SELECT timestamp,
+                          (julianday('now') - julianday(timestamp)) * 86400 AS age_seconds
+                   FROM status_log
+                   WHERE mac = ? AND status = 'offline'
+                   ORDER BY timestamp DESC, id DESC LIMIT 1""",
+                (mac,),
+            ).fetchone()
+            if (offline_row and offline_row["age_seconds"] is not None
+                    and offline_row["age_seconds"] >= grace_seconds):
+                pending[mac] = ("offline", friendly_name, offline_row["timestamp"])
 
-        # Find the most recent notification we've ever sent for this gateway
-        # (any status). If the latest status change is newer than that, it's
-        # a real new transition worth alerting on.
-        last_notified = conn.execute(
-            """SELECT sent_at FROM notification_log
-               WHERE mac = ?
-               ORDER BY sent_at DESC LIMIT 1""",
-            (mac,),
-        ).fetchone()
-
-        if last_notified and latest_change["timestamp"] <= last_notified["sent_at"]:
-            # Nothing new since we last notified — skip.
-            continue
-
-        latest_per_gw[mac] = current_status
-
-    if not latest_per_gw:
+    if not pending:
         conn.close()
         return
 
-    logger.info(f"Notification check: {len(latest_per_gw)} gateway(s) with unnotified status changes")
-
-    for mac, new_status in latest_per_gw.items():
-        gw = conn.execute("SELECT * FROM gateways WHERE mac = ?", (mac,)).fetchone()
-        if not gw:
-            continue
-
-        gateway_name = gw["friendly_name"] or mac
+    for mac, (new_status, gateway_name, offline_since) in pending.items():
         notify_field = "notify_online" if new_status == "online" else "notify_offline"
-
-        # Get per-gateway subscribers
         subs = conn.execute(
             f"SELECT email, unsubscribe_token FROM subscribers WHERE mac = ? AND {notify_field} = 1",
             (mac,),
         ).fetchall()
 
-        notified_emails = set()
-        for sub in subs:
-            # Check 24-hour cooldown for this email + gateway
-            already_sent = conn.execute(
-                "SELECT 1 FROM notification_log WHERE email = ? AND mac = ? AND sent_at > ?",
-                (sub["email"], mac, cutoff),
-            ).fetchone()
-            if already_sent:
-                logger.debug(f"Skipping {sub['email']} for {mac} — already notified in last {NOTIFICATION_COOLDOWN_HOURS}h")
-                continue
+        # Admin always receives alerts (no unsubscribe link), in addition to subs.
+        recipients = {sub["email"]: sub["unsubscribe_token"] for sub in subs}
+        recipients.setdefault(ADMIN_EMAIL, "")
 
-            subject, html = build_notification_email(
-                gateway_name, mac, new_status, sub["unsubscribe_token"])
-            send_email(sub["email"], subject, html)
+        for email, token in recipients.items():
+            # Most recent offline / online alert we've sent this recipient.
+            last_offline = conn.execute(
+                "SELECT MAX(sent_at) AS t FROM notification_log WHERE email=? AND mac=? AND status='offline'",
+                (email, mac),
+            ).fetchone()["t"]
+            last_online = conn.execute(
+                "SELECT MAX(sent_at) AS t FROM notification_log WHERE email=? AND mac=? AND status='online'",
+                (email, mac),
+            ).fetchone()["t"]
+
+            if new_status == "offline":
+                # Already warned about THIS outage? (an offline alert sent
+                # at/after the outage began). Both timestamps are SQLite UTC
+                # 'YYYY-MM-DD HH:MM:SS' strings, so a string compare is chronological.
+                if last_offline is not None and last_offline >= offline_since:
+                    continue
+            else:  # online — recovery
+                # Only if we warned them offline and haven't yet said "recovered".
+                if last_offline is None or (last_online is not None and last_online >= last_offline):
+                    continue
+
+            subject, html = build_notification_email(gateway_name, mac, new_status, token or "")
+            send_email(email, subject, html)
             conn.execute(
                 "INSERT INTO notification_log (email, mac, status) VALUES (?, ?, ?)",
-                (sub["email"], mac, new_status),
+                (email, mac, new_status),
             )
-            notified_emails.add(sub["email"])
+            logger.info(f"Sent {new_status} alert for {mac} to {email}")
 
-        # Always send to admin (with cooldown too)
-        if ADMIN_EMAIL not in notified_emails:
-            already_sent = conn.execute(
-                "SELECT 1 FROM notification_log WHERE email = ? AND mac = ? AND sent_at > ?",
-                (ADMIN_EMAIL, mac, cutoff),
-            ).fetchone()
-            if not already_sent:
-                subject, html = build_notification_email(gateway_name, mac, new_status)
-                send_email(ADMIN_EMAIL, subject, html)
-                conn.execute(
-                    "INSERT INTO notification_log (email, mac, status) VALUES (?, ?, ?)",
-                    (ADMIN_EMAIL, mac, new_status),
-                )
-
-    # Housekeeping: purge notification_log entries older than 30 days.
-    # We need to keep these around long enough that the "has this change
-    # already been notified?" check in the detection loop remains correct
-    # even for gateways that stay in the same state for weeks. 48h was too
-    # aggressive and caused nightly duplicate alerts once the cooldown
-    # window expired.
+    # Housekeeping: keep notification_log entries for 30 days so the state
+    # machine above stays correct across long-lived outages.
     purge_cutoff = (now_utc - timedelta(days=30)).isoformat()
     conn.execute("DELETE FROM notification_log WHERE sent_at < ?", (purge_cutoff,))
 

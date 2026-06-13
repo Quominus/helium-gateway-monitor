@@ -156,6 +156,14 @@ Environment=NODE_ENV=production
 WantedBy=multi-user.target
 EOF
 
+# Allow the service user to restart helium-multi-gateway (stuck-dispatcher
+# watchdog). Narrow, passwordless, single-command sudoers rule.
+echo "[7b/9] Installing sudoers rule for dispatcher auto-restart..."
+echo "$SERVICE_USER ALL=(root) NOPASSWD: /usr/bin/systemctl restart helium-multi-gateway.service" \
+    | sudo tee /etc/sudoers.d/gateway-monitor-restart > /dev/null
+sudo chmod 0440 /etc/sudoers.d/gateway-monitor-restart
+sudo visudo -cf /etc/sudoers.d/gateway-monitor-restart
+
 sudo systemctl daemon-reload
 sudo systemctl enable gateway-monitor helium-onboard
 sudo systemctl start gateway-monitor
