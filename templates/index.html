@@ -96,7 +96,7 @@
       padding: 0 24px;
     }
     .howto-panel.open .howto-body {
-      max-height: 500px;
+      max-height: 800px;
       padding: 0 24px 24px 24px;
     }
     .howto-body p {
@@ -425,6 +425,69 @@
     }
     @media (max-width: 480px) {
       .stats-grid { grid-template-columns: 1fr; }
+    }
+
+    /* ---- Mobile: stack the gateway table into per-gateway cards ---- */
+    @media (max-width: 640px) {
+      .container { padding: 16px; }
+
+      .header-inner { padding: 14px 16px; }
+      .header-logo { height: 36px; }
+      .header-right h1 { font-size: 16px; }
+      .header-right span { font-size: 11px; }
+
+      .howto-toggle { padding: 16px; }
+      .howto-body { padding: 0 16px; }
+      .howto-panel.open .howto-body { max-height: 1600px; padding: 0 16px 16px; }
+
+      .stat-card { padding: 16px 18px; }
+      .stat-card .stat-value { font-size: 26px; }
+
+      .table-toolbar { padding: 14px 16px; }
+      .table-wrapper { overflow-x: visible; }
+
+      table { font-size: 13px; }
+      table, tbody, tr, td { display: block; }
+      thead { display: none; }
+      tbody tr {
+        background: #fff;
+        border: 1px solid var(--primary-200);
+        border-radius: 10px;
+        box-shadow: var(--shadow);
+        margin: 12px;
+        padding: 4px 14px;
+      }
+      tbody tr:hover { background: #fff; }
+      tbody td {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 9px 0;
+        border: none;
+        border-bottom: 1px solid var(--primary-100);
+        text-align: left !important;
+        white-space: normal;
+        word-break: break-word;
+      }
+      tbody tr td:last-child { border-bottom: none; }
+      tbody td::before {
+        content: attr(data-label);
+        flex: 0 0 104px;
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.4px;
+        color: var(--primary-400);
+      }
+      .empty-row td { display: block; text-align: center !important; padding: 40px 16px; }
+      .empty-row td::before { content: none; }
+
+      .modal { padding: 22px; }
+      .onboard-modal-header { padding: 20px 18px 0; }
+      .onboard-tabs { padding: 0 18px; }
+      .onboard-tab { padding: 10px 14px; }
+      .onboard-tab-content { padding: 20px 18px; }
+      .onboard-modal-footer { padding: 14px 18px; }
     }
 
     .fade-in { animation: fadeIn 0.3s ease; }
@@ -1090,21 +1153,21 @@
 
         return `
           <tr>
-            <td><span class="status-dot ${status}"></span></td>
-            <td><span class="region-badge">${escHtml(REGION)}</span></td>
-            <td class="mac-cell">
+            <td data-label="Status"><span class="status-dot ${status}"></span></td>
+            <td data-label="Region"><span class="region-badge">${escHtml(REGION)}</span></td>
+            <td class="mac-cell" data-label="MAC">
               ${escHtml(gw.mac)}<button class="copy-btn" onclick="copyText('${gw.mac}')" title="Copy MAC"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button>
             </td>
-            <td>
+            <td data-label="Gateway">
               <span class="public-key-name" title="${escAttr(publicKey)}">${publicKey ? escHtml(gw.friendly_name || getHotspotName(publicKey)) : ''}</span>
               ${publicKey ? `<button class="copy-btn" onclick="copyText(this.parentElement.querySelector('.public-key-name').textContent)" title="Copy gateway name"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button>` : ''}
             </td>
-            <td class="connected-time">${connDuration}</td>
-            <td class="last-uplink ${isStale ? 'stale' : ''}">${lastUplink}</td>
-            <td class="right packet-count">${formatNumber(gw.uplinks)}</td>
-            <td class="right packet-count">${formatNumber(gw.downlinks)}</td>
-            <td class="center">${onchainBadge}</td>
-            <td class="center">
+            <td class="connected-time" data-label="Connected">${connDuration}</td>
+            <td class="last-uplink ${isStale ? 'stale' : ''}" data-label="Last Uplink">${lastUplink}</td>
+            <td class="right packet-count" data-label="Uplinks">${formatNumber(gw.uplinks)}</td>
+            <td class="right packet-count" data-label="Downlinks">${formatNumber(gw.downlinks)}</td>
+            <td class="center" data-label="On-Chain">${onchainBadge}</td>
+            <td class="center" data-label="Alerts">
               <button class="subscribe-btn" onclick="openSubscribeModal('${gw.mac}')">Subscribe</button>
             </td>
           </tr>`;
